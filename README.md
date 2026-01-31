@@ -1,13 +1,10 @@
 # PrathamCare — Unified AI-Powered Care for India
 
-## One-line Pitch
 One Flutter app (mobile + web) connecting Patients, ASHA workers, and Doctors with AWS AI for intelligent call-based triage, shared longitudinal EMR (FHIR), and 2-minute AI summaries.
 
 ## Mission and Constraints
 - **Single app, three roles**: One Flutter codebase with role-aware UI for ASHA, Patient, and Physician experiences.
-- **Cognito-first auth**: OTP login + RBAC via Amazon Cognito for every user, backend validates JWT on every request.
 - **Go backend monolith**: A single Go Lambda (Gin/Chi + aws-lambda-go proxy) drives all APIs, avoiding microservices.
-- **No extras**: MVP sticks to ASHA capture, call-based triage, doctor summary + SOAP, patient remarks; only basic logging/monitoring.
 
 ## Monorepo Layout (proposed)
 ```

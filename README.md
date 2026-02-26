@@ -40,6 +40,8 @@ The system uses FHIR-aligned clinical modeling in HealthLake, relational operati
 - EMR Summary -> FHIR + operational data retrieval -> AI summarization.
 - Patient Remarks -> Voice/text processing -> Categorization -> Physician visibility.
 
+<img width="1357" height="905" alt="image" src="https://github.com/user-attachments/assets/3aa80e93-562b-49a8-a35f-f1c3f4782330" />
+
 ## Repository Layout
 ```text
 prathamcare/

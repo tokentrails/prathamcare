@@ -1,80 +1,81 @@
-# PrathamCare — Unified AI-Powered Care for India
+# PrathamCare
 
-One Flutter app (mobile + web) connecting Patients, ASHA workers, and Doctors with AWS AI for intelligent call-based triage, shared longitudinal EMR (FHIR), and 2-minute AI summaries.
+Unified AI-powered healthcare platform connecting ASHA workers, physicians, and patients on AWS.
 
-## Mission and Constraints
-- **Single app, three roles**: One Flutter codebase with role-aware UI for ASHA, Patient, and Physician experiences.
-- **Go backend monolith**: A single Go Lambda (Gin/Chi + aws-lambda-go proxy) drives all APIs, avoiding microservices.
+## Detailed Summary
+PrathamCare is designed to reduce fragmentation in care delivery by combining role-specific workflows into a single platform:
+- ASHA workers capture field data quickly, including voice-first documentation and offline-first sync.
+- Physicians get a structured clinical workspace with timeline context, AI-assisted summaries, and appointment intelligence.
+- Patients can contribute updates, access records, and engage in triage/consult journeys.
 
-## Monorepo Layout (proposed)
-```
-/prathamcare
-├── app/
-│   └── flutter/            # Flutter app (mobile + web), Riverpod, Hive/sqflite local caching, Dio client
-├── backend/
-│   └── go/                 # Go monolith (handlers/services/repositories/models)
-├── infra/                   # IaC for Cognito, Lambda, API Gateway, Aurora, HealthLake, S3, etc.
-├── scripts/                 # Seed data loaders, doc helpers, automation
-├── docs/                    # Design decisions, flow diagrams, AI prompts, glossary
-└── README.md                # This file
+The system uses FHIR-aligned clinical modeling in HealthLake, relational operational workflows in Aurora, and AWS AI services for transcription, extraction, categorization, and summarization.
+
+## Features
+### ASHA Worker Features
+- Voice-first home-visit capture for rapid documentation.
+- Offline data entry with queued sync behavior.
+- Structured encounter creation (vitals, symptoms, observations).
+- Multilingual capture support for field workflows.
+
+### Physician Features
+- Doctor dashboard with schedule-focused workflow.
+- AI clinical briefing and summary-oriented review.
+- Appointment cards with risk/status tagging.
+- Quick actions for encounter start and note capture.
+
+### Patient Features
+- Patient-originated remarks (text/voice) for context sharing.
+- Record visibility patterns aligned to clinical access controls.
+- Triage and physician-matching oriented intake flows.
+
+### Platform Features
+- Cognito-based authentication and role-aware authorization.
+- FHIR resource mapping across patient/encounter/observation/medication/condition.
+- S3-backed media/document workflows via secure upload patterns.
+- Real-time and near-real-time update patterns for clinical notifications.
+
+## Core Workflows
+- ASHA Voice Capture -> Transcription -> Entity extraction -> FHIR encounter updates.
+- AI Triage -> Physician matching -> Appointment creation -> Provider notification.
+- EMR Summary -> FHIR + operational data retrieval -> AI summarization.
+- Patient Remarks -> Voice/text processing -> Categorization -> Physician visibility.
+
+## Repository Layout
+```text
+prathamcare/
+├── pratham-app/
+│   └── prathamcare/              # Flutter app (mobile/web)
+├── pratham-backend/              # Go Lambda backend scaffold
+├── AGENTS.md                     # Project orchestration instructions
+├── pratham.md                    # Product/problem context
+└── README.md                     # This file
 ```
 
 ## Tech Stack
-- **Frontend**: Flutter + Dart, Riverpod, Hive/sqflite for offline, Dio for HTTP, qr/camera/record plugins, pdf generation.
-- **Backend**: Go, Gin/Chi + aws-lambda-go proxy, AWS SDK Go v2, structured logging, JSON schema validation, retry/circuit-breaker wrappers.
-- **Data stores**: Amazon HealthLake (FHIR R4) for Patient/Encounter/Observation/Condition/MedicationRequest/AllergyIntolerance/FamilyMemberHistory; Aurora PostgreSQL for users, physicians, schedules, appointments, remarks; DynamoDB for sessions/offline queue; S3 for documents/audio; OpenSearch Serverless for AI embeddings.
-- **AI/Voice/Language**: Amazon Bedrock (summaries/triage/categorization), Amazon Lex (symptom intake), Amazon Connect (triage IVR), Amazon Transcribe Medical, Amazon Comprehend Medical, Amazon Translate, Amazon Textract, OpenSearch RAG.
-- **Security**: Amazon Cognito (OTP + RBAC), AWS KMS (encryption), Secrets Manager, WAF, TLS everywhere.
+- Frontend: Flutter (Dart)
+- Backend: Go (AWS Lambda-ready scaffold)
+- Cloud/Data/AI targets: API Gateway, Cognito, HealthLake (FHIR), Aurora, DynamoDB, S3, Bedrock, Transcribe, Comprehend
 
-## Core Flows
-1. **ASHA Visit → EMR Update**: ASHA logs in → selects/creates patient → records vitals/voice → backend transcribes (Transcribe Medical) → Comprehend Medical maps entities → create HealthLake Encounter/Observation/Condition → store audio/docs in S3 + link references → Bedrock suggests next steps.
-2. **Call Triage → Physician Match → Appointment**: Patient calls Connect number / app → Lex captures symptoms/language/location/ABHA → Lambda calls Bedrock for assessment → Aurora matcher finds physician (specialty + language + availability) → appointment + HealthLake placeholder encounter created → SNS + EventBridge reminders triggered.
-3. **Doctor Consult → SOAP + Prescription**: Doctor sees appointments + AI summary (Bedrock + RAG) → dictates encounter → Transcribe Medical → Bedrock structures SOAP with Assessment/Plan → persist Encounter/Condition/MedicationRequest in HealthLake → generate e-prescription PDF in S3 (shared link).
-4. **Patient Remark ↔ Highlights**: Patient adds remark (text/voice) → transcribe/translate → Bedrock categorizes/importance → save in Aurora (＋ optional FHIR Allergy/FamilyMemberHistory) → surfaces in doctor summary.
+## Run Frontend
+```bash
+cd pratham-app/prathamcare
+flutter pub get
+flutter run -d chrome
+```
 
-## Backend APIs (OpenAPI-focused)
-| Area | Routes |
-|------|--------|
-| Auth | `Cognito` driven; backend checks JWT (`/auth/validate`).
-| Patients | `GET /patients?query=`, `POST /patients`, `GET /patients/{id}/timeline`, `POST /patients/{id}/scan-abha`.
-| Encounters | `POST /encounters`, `POST /encounters/{id}/voice-note`, `POST /encounters/{id}/soap`.
-| Appointments | `POST /appointments`, `GET /appointments?role=doctor|patient`, `POST /appointments/{id}/summary`.
-| Remarks | `POST /patients/{id}/remarks`.
-| Documents | `POST /patients/{id}/documents` (signed upload), `GET /patients/{id}/documents`.
-| Triage | `POST /triage/analyze`, `POST /triage/match`, `POST /triage/webhook` (Lex).
-| Prescriptions | `POST /encounters/{id}/prescriptions`, `GET /prescriptions/{id}/pdf`.
-| Sync/Offline | `POST /sync/queue`, `GET /sync/status`.
+## Run Backend
+```bash
+cd pratham-backend
+go mod tidy
+go run ./cmd/api
+```
 
-Each response includes privacy disclaimer (non-diagnostic, synthetic/public data). Errors follow shared schema with timestamp/request_id.
+## Backend Health Endpoints
+- `GET /health`
+- `GET /ready`
+- `GET /api/v1/me` (Cognito JWT required)
 
-## Data Model Snapshot
-- **HealthLake**: Patients, Practitioners, Encounters, Observations, Conditions, MedicationRequests, AllergyIntolerance, FamilyMemberHistory, DocumentReference for uploads.
-- **Aurora**: `users` (cognito_sub, role, fhir refs), `physicians`, `physician_schedule`, `appointments`, `patient_remarks`, `waitlist`.
-- **DynamoDB**: `sessions` (optional), `offline_queue` for disconnected ASHA work.
-- **S3**: `medical-documents/{patientId}/{type}/{timestamp}/`, `voice-recordings/{userId}/{timestamp}/`.
-- **OpenSearch**: Guideline docs, patient semantic summaries embeddings for RAG.
-
-## Infrastructure & Deployment
-- **Lambda + API Gateway**: Single Go binary behind API Gateway with WAF. Cognito authorizer validates OTP-issued JWTs.
-- **Monitoring**: CloudWatch Logs (structured), basic alarms (error rate, latency). No heavy dashboards—keep focus on logs/alerts.
-- **Config**: 100% env vars (DB URLs, AWS roles, log level); `.env.example` seeds required vars.
-- **Local Dev**: `docker-compose` for Aurora/Postgres; optional LocalStack mocks for AWS (Transcribe/Bedrock stubbed) if needed. Provide scripts to seed demo users (ASHA/Doctor/Patient) and doctor schedules.
-
-## Testing & Quality
-- **Unit Tests**: Go tests for triage parsing, summary formatting, physician matching; Flutter widget/provider tests for each role.
-- **Property Tests**: `gopter` harness ensures invariants (triage urgency, summary length < 400 words, matching correctness).
-- **Integration**: API tests covering OTP login, ASHA capture, triage → appointment, SOAP note + prescription.
-- **End-to-End**: Flutter integration tests for ASHA, Patient, Physician journeys.
-- **Retry + Circuit Breaker**: Backend wraps AWS calls with configurable retries + circuit breaker.
-
-## Security & Privacy
-- RBAC enforced by Cognito roles; backend inspects JWT claims.
-- Sensitive data: only FHIR IDs logged, ABHA numbers redacted, phone numbers partially masked.
-- TLS everywhere, requests signed with KMS-backed secrets, uploads validated by type/size.
-- API + UI disclaimers stressing non-diagnostic, synthetic/public data only.
-
-## Next Steps
-1. Scaffold Flutter + Go projects following the outlined layout.
-2. Build API contracts (OpenAPI spec, sample payloads) for each route.
-3. Script seed data + AWS infrastructure provisioning (Cognito, Lambda, Aurora, HealthLake, S3, DynamoDB, OpenSearch).
-
+## Notes
+- Root logo source: `pratham-logo.png`
+- App logo asset: `pratham-app/prathamcare/assets/images/pratham-logo.png`
+- App font: `PlusJakartaSans` registered via `pubspec.yaml`

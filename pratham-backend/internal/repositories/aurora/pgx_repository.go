@@ -1,0 +1,445 @@
+package aurora
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prathamcare/backend/internal/models"
+)
+
+type PgxRepository struct {
+	pool *pgxpool.Pool
+}
+
+func NewPgxRepository(ctx context.Context, dsn string) (*PgxRepository, error) {
+	if dsn == "" {
+		return nil, errors.New("aurora dsn is empty")
+	}
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("pgx pool init: %w", err)
+	}
+	return &PgxRepository{pool: pool}, nil
+}
+
+func (r *PgxRepository) Close() {
+	if r.pool != nil {
+		r.pool.Close()
+	}
+}
+
+func (r *PgxRepository) CreateUser(ctx context.Context, user models.User) (models.User, error) {
+	q := `
+INSERT INTO users (cognito_sub, role, full_name, phone, email, preferred_language, is_active)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING user_id, cognito_sub, role, full_name, phone, COALESCE(email, ''), preferred_language, is_active,
+	COALESCE(last_login_at, NOW()), created_at, updated_at`
+
+	var out models.User
+	err := r.pool.QueryRow(ctx, q,
+		user.CognitoSub,
+		user.Role,
+		user.FullName,
+		user.Phone,
+		nullIfEmpty(user.Email),
+		nullIfEmpty(user.PreferredLanguage),
+		user.IsActive,
+	).Scan(
+		&out.UserID,
+		&out.CognitoSub,
+		&out.Role,
+		&out.FullName,
+		&out.Phone,
+		&out.Email,
+		&out.PreferredLanguage,
+		&out.IsActive,
+		&out.LastLoginAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) GetUserByCognitoSub(ctx context.Context, cognitoSub string) (models.User, error) {
+	var out models.User
+	err := r.pool.QueryRow(ctx, `
+SELECT user_id, cognito_sub, role, full_name, phone, COALESCE(email, ''), preferred_language, is_active,
+	COALESCE(last_login_at, NOW()), created_at, updated_at
+FROM users
+WHERE cognito_sub = $1`, cognitoSub).Scan(
+		&out.UserID,
+		&out.CognitoSub,
+		&out.Role,
+		&out.FullName,
+		&out.Phone,
+		&out.Email,
+		&out.PreferredLanguage,
+		&out.IsActive,
+		&out.LastLoginAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) CreateClinic(ctx context.Context, clinic models.Clinic) (models.Clinic, error) {
+	var out models.Clinic
+	err := r.pool.QueryRow(ctx, `
+INSERT INTO clinics (clinic_code, name, type, abdm_hfr_id, phone, email, city, state, pincode, country_code, is_active)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING clinic_id, COALESCE(clinic_code, ''), name, type, COALESCE(abdm_hfr_id, ''), COALESCE(phone, ''), COALESCE(email, ''),
+	COALESCE(city, ''), COALESCE(state, ''), COALESCE(pincode, ''), country_code, is_active, created_at, updated_at`,
+		nullIfEmpty(clinic.ClinicCode),
+		clinic.Name,
+		nullIfEmpty(clinic.Type),
+		nullIfEmpty(clinic.ABDMHFRID),
+		nullIfEmpty(clinic.Phone),
+		nullIfEmpty(clinic.Email),
+		nullIfEmpty(clinic.City),
+		nullIfEmpty(clinic.State),
+		nullIfEmpty(clinic.Pincode),
+		nullIfEmpty(clinic.CountryCode),
+		clinic.IsActive,
+	).Scan(
+		&out.ClinicID,
+		&out.ClinicCode,
+		&out.Name,
+		&out.Type,
+		&out.ABDMHFRID,
+		&out.Phone,
+		&out.Email,
+		&out.City,
+		&out.State,
+		&out.Pincode,
+		&out.CountryCode,
+		&out.IsActive,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) AssignUserToClinic(ctx context.Context, clinicID, userID string) error {
+	_, err := r.pool.Exec(ctx, `
+INSERT INTO clinic_memberships (clinic_id, user_id, status)
+VALUES ($1, $2, 'active')
+ON CONFLICT (clinic_id, user_id) DO UPDATE SET status = 'active', updated_at = NOW()`, clinicID, userID)
+	return err
+}
+
+func (r *PgxRepository) UpsertPatientIndex(ctx context.Context, patient models.Patient) (models.Patient, error) {
+	q := `
+INSERT INTO patients (
+	fhir_patient_id, abha_id, full_name, gender, date_of_birth, phone, preferred_language,
+	primary_clinic_id, source_system, read_only, last_synced_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+ON CONFLICT (fhir_patient_id) DO UPDATE SET
+	abha_id = EXCLUDED.abha_id,
+	full_name = EXCLUDED.full_name,
+	gender = EXCLUDED.gender,
+	date_of_birth = EXCLUDED.date_of_birth,
+	phone = EXCLUDED.phone,
+	preferred_language = EXCLUDED.preferred_language,
+	primary_clinic_id = EXCLUDED.primary_clinic_id,
+	source_system = EXCLUDED.source_system,
+	read_only = EXCLUDED.read_only,
+	last_synced_at = EXCLUDED.last_synced_at,
+	updated_at = NOW()
+RETURNING patient_id, fhir_patient_id, COALESCE(abha_id, ''), full_name, COALESCE(gender, ''), COALESCE(date_of_birth::text, ''),
+	COALESCE(phone, ''), COALESCE(preferred_language, ''), COALESCE(primary_clinic_id::text, ''), source_system, read_only,
+	COALESCE(last_synced_at, NOW()), created_at, updated_at`
+
+	var out models.Patient
+	err := r.pool.QueryRow(ctx, q,
+		patient.FHIRPatientID,
+		nullIfEmpty(patient.ABHAID),
+		patient.FullName,
+		nullIfEmpty(patient.Gender),
+		nullIfEmpty(patient.DateOfBirth),
+		nullIfEmpty(patient.Phone),
+		nullIfEmpty(patient.PreferredLanguage),
+		nullIfEmpty(patient.PrimaryClinicID),
+		nullIfEmpty(patient.SourceSystem),
+		patient.ReadOnly,
+		nullIfZeroTime(patient.LastSyncedAt),
+	).Scan(
+		&out.PatientID,
+		&out.FHIRPatientID,
+		&out.ABHAID,
+		&out.FullName,
+		&out.Gender,
+		&out.DateOfBirth,
+		&out.Phone,
+		&out.PreferredLanguage,
+		&out.PrimaryClinicID,
+		&out.SourceSystem,
+		&out.ReadOnly,
+		&out.LastSyncedAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) GetPatientByFHIRID(ctx context.Context, fhirPatientID string) (models.Patient, error) {
+	var out models.Patient
+	err := r.pool.QueryRow(ctx, `
+SELECT patient_id, fhir_patient_id, COALESCE(abha_id, ''), full_name, COALESCE(gender, ''), COALESCE(date_of_birth::text, ''),
+	COALESCE(phone, ''), COALESCE(preferred_language, ''), COALESCE(primary_clinic_id::text, ''), source_system, read_only,
+	COALESCE(last_synced_at, NOW()), created_at, updated_at
+FROM patients
+WHERE fhir_patient_id = $1`, fhirPatientID).Scan(
+		&out.PatientID,
+		&out.FHIRPatientID,
+		&out.ABHAID,
+		&out.FullName,
+		&out.Gender,
+		&out.DateOfBirth,
+		&out.Phone,
+		&out.PreferredLanguage,
+		&out.PrimaryClinicID,
+		&out.SourceSystem,
+		&out.ReadOnly,
+		&out.LastSyncedAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) ListPatientsByClinic(ctx context.Context, clinicID string, limit int) ([]models.Patient, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT patient_id, fhir_patient_id, COALESCE(abha_id, ''), full_name, COALESCE(gender, ''), COALESCE(date_of_birth::text, ''),
+	COALESCE(phone, ''), COALESCE(preferred_language, ''), COALESCE(primary_clinic_id::text, ''), source_system, read_only,
+	COALESCE(last_synced_at, NOW()), created_at, updated_at
+FROM patients
+WHERE primary_clinic_id = $1
+ORDER BY updated_at DESC
+LIMIT $2`, clinicID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.Patient, 0, limit)
+	for rows.Next() {
+		var item models.Patient
+		if err := rows.Scan(
+			&item.PatientID,
+			&item.FHIRPatientID,
+			&item.ABHAID,
+			&item.FullName,
+			&item.Gender,
+			&item.DateOfBirth,
+			&item.Phone,
+			&item.PreferredLanguage,
+			&item.PrimaryClinicID,
+			&item.SourceSystem,
+			&item.ReadOnly,
+			&item.LastSyncedAt,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *PgxRepository) CreateAppointment(ctx context.Context, a models.Appointment) (models.Appointment, error) {
+	q := `
+INSERT INTO appointments (
+	patient_id, physician_id, clinic_id, appointment_type, booking_channel, status,
+	scheduled_start_at, scheduled_end_at, preliminary_diagnosis, fhir_appointment_id,
+	fhir_encounter_id, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+RETURNING appointment_id, patient_id, physician_id, clinic_id, appointment_type, booking_channel,
+	status, scheduled_start_at, scheduled_end_at, COALESCE(preliminary_diagnosis, ''), COALESCE(fhir_appointment_id, ''),
+	COALESCE(fhir_encounter_id, ''), COALESCE(created_by::text, ''), created_at, updated_at`
+
+	var out models.Appointment
+	err := r.pool.QueryRow(ctx, q,
+		a.PatientID,
+		a.PhysicianID,
+		a.ClinicID,
+		nullIfEmpty(a.AppointmentType),
+		nullIfEmpty(a.BookingChannel),
+		nullIfEmpty(a.Status),
+		a.ScheduledStartAt,
+		a.ScheduledEndAt,
+		nullIfEmpty(a.PreliminaryDiagnosis),
+		nullIfEmpty(a.FHIRAppointmentID),
+		nullIfEmpty(a.FHIREncounterID),
+		nullIfEmpty(a.CreatedBy),
+	).Scan(
+		&out.AppointmentID,
+		&out.PatientID,
+		&out.PhysicianID,
+		&out.ClinicID,
+		&out.AppointmentType,
+		&out.BookingChannel,
+		&out.Status,
+		&out.ScheduledStartAt,
+		&out.ScheduledEndAt,
+		&out.PreliminaryDiagnosis,
+		&out.FHIRAppointmentID,
+		&out.FHIREncounterID,
+		&out.CreatedBy,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) UpdateAppointmentStatus(ctx context.Context, appointmentID, status string) error {
+	_, err := r.pool.Exec(ctx, `
+UPDATE appointments
+SET status = $2, updated_at = NOW()
+WHERE appointment_id = $1`, appointmentID, status)
+	return err
+}
+
+func (r *PgxRepository) ListAppointmentsByPhysician(ctx context.Context, physicianID string, start, end time.Time) ([]models.Appointment, error) {
+	q := `
+SELECT appointment_id, patient_id, physician_id, clinic_id, appointment_type, booking_channel,
+	status, scheduled_start_at, scheduled_end_at, COALESCE(preliminary_diagnosis, ''), COALESCE(fhir_appointment_id, ''),
+	COALESCE(fhir_encounter_id, ''), COALESCE(created_by::text, ''), created_at, updated_at
+FROM appointments
+WHERE physician_id = $1
+  AND scheduled_start_at >= $2
+  AND scheduled_start_at <= $3
+ORDER BY scheduled_start_at ASC`
+	rows, err := r.pool.Query(ctx, q, physicianID, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.Appointment, 0)
+	for rows.Next() {
+		var item models.Appointment
+		if err := rows.Scan(
+			&item.AppointmentID,
+			&item.PatientID,
+			&item.PhysicianID,
+			&item.ClinicID,
+			&item.AppointmentType,
+			&item.BookingChannel,
+			&item.Status,
+			&item.ScheduledStartAt,
+			&item.ScheduledEndAt,
+			&item.PreliminaryDiagnosis,
+			&item.FHIRAppointmentID,
+			&item.FHIREncounterID,
+			&item.CreatedBy,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *PgxRepository) CreatePatientRemark(ctx context.Context, remark models.PatientRemark) (models.PatientRemark, error) {
+	q := `
+INSERT INTO patient_remarks (
+	patient_id, added_by_user_id, remark_text_original, original_language, remark_text_english,
+	remark_types, importance, voice_recording_url, visibility
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+RETURNING remark_id, patient_id, COALESCE(added_by_user_id::text, ''), remark_text_original, original_language,
+	COALESCE(remark_text_english, ''), remark_types, COALESCE(importance, ''), COALESCE(voice_recording_url, ''), visibility, created_at`
+
+	var out models.PatientRemark
+	err := r.pool.QueryRow(ctx, q,
+		remark.PatientID,
+		nullIfEmpty(remark.AddedByUserID),
+		remark.RemarkTextOriginal,
+		nullIfEmpty(remark.OriginalLanguage),
+		nullIfEmpty(remark.RemarkTextEnglish),
+		remark.RemarkTypes,
+		nullIfEmpty(remark.Importance),
+		nullIfEmpty(remark.VoiceRecordingURL),
+		nullIfEmpty(remark.Visibility),
+	).Scan(
+		&out.RemarkID,
+		&out.PatientID,
+		&out.AddedByUserID,
+		&out.RemarkTextOriginal,
+		&out.OriginalLanguage,
+		&out.RemarkTextEnglish,
+		&out.RemarkTypes,
+		&out.Importance,
+		&out.VoiceRecordingURL,
+		&out.Visibility,
+		&out.CreatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) ListPatientRemarks(ctx context.Context, patientID string, limit int) ([]models.PatientRemark, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	q := `
+SELECT remark_id, patient_id, COALESCE(added_by_user_id::text, ''), remark_text_original, original_language,
+	COALESCE(remark_text_english, ''), remark_types, COALESCE(importance, ''), COALESCE(voice_recording_url, ''), visibility, created_at
+FROM patient_remarks
+WHERE patient_id = $1
+ORDER BY created_at DESC
+LIMIT $2`
+
+	rows, err := r.pool.Query(ctx, q, patientID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.PatientRemark, 0, limit)
+	for rows.Next() {
+		var item models.PatientRemark
+		if err := rows.Scan(
+			&item.RemarkID,
+			&item.PatientID,
+			&item.AddedByUserID,
+			&item.RemarkTextOriginal,
+			&item.OriginalLanguage,
+			&item.RemarkTextEnglish,
+			&item.RemarkTypes,
+			&item.Importance,
+			&item.VoiceRecordingURL,
+			&item.Visibility,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func nullIfEmpty(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func nullIfZeroTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+var _ Repository = (*PgxRepository)(nil)
+var _ = pgx.ErrNoRows

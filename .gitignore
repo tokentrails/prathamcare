@@ -1,0 +1,85 @@
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+.vscode/
+.idea/
+*.iml
+
+# --- Secrets / local env ---
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# --- Logs / coverage ---
+*.log
+coverage/
+*.out
+
+# --- Go backend ---
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Build artifacts
+bin/
+dist/
+
+# Go workspace / modules
+go.work
+go.work.sum
+vendor/
+
+# --- Flutter / Dart ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub/
+.pub-cache/
+.packages
+build/
+**/build/
+
+# Flutter platform build outputs
+**/android/.gradle/
+**/android/local.properties
+**/android/build/
+**/android/app/build/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Runner/GeneratedPluginRegistrant.h
+**/ios/Runner/GeneratedPluginRegistrant.m
+**/ios/Pods/
+**/ios/.symlinks/
+**/macos/Pods/
+**/macos/Flutter/ephemeral/
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# Generated docs
+**/doc/api/
+
+# --- Node / Infra tooling (future infra folders) ---
+node_modules/
+.npm/
+.pnpm-store/
+
+# Terraform / CDK artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+cdk.out/

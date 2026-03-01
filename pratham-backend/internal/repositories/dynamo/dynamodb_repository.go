@@ -62,7 +62,7 @@ func (r *DynamoRepository) GetSession(ctx context.Context, sessionID string) (mo
 	out, err := r.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableSessions),
 		Key: map[string]types.AttributeValue{
-			"session_id": &types.AttributeValueMemberS{Value: sessionID},
+			"sessionId": &types.AttributeValueMemberS{Value: sessionID},
 		},
 	})
 	if err != nil {
@@ -82,13 +82,28 @@ func (r *DynamoRepository) DeleteSession(ctx context.Context, sessionID string) 
 	_, err := r.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(r.tableSessions),
 		Key: map[string]types.AttributeValue{
-			"session_id": &types.AttributeValueMemberS{Value: sessionID},
+			"sessionId": &types.AttributeValueMemberS{Value: sessionID},
 		},
 	})
 	return err
 }
 
 func (r *DynamoRepository) EnqueueOfflineAction(ctx context.Context, item models.OfflineQueueItem) error {
+	if item.PatientID == "" {
+		if item.ResourceID != "" {
+			item.PatientID = item.ResourceID
+		} else {
+			item.PatientID = "user#" + item.UserID
+		}
+	}
+	if item.Timestamp == "" {
+		t := item.CreatedAt
+		if t.IsZero() {
+			t = time.Now().UTC()
+			item.CreatedAt = t
+		}
+		item.Timestamp = t.Format(time.RFC3339Nano)
+	}
 	av, err := attributevalue.MarshalMap(item)
 	if err != nil {
 		return err
@@ -104,7 +119,7 @@ func (r *DynamoRepository) ListOfflineQueueByUser(ctx context.Context, userID st
 	out, err := r.client.Scan(ctx, &dynamodb.ScanInput{
 		TableName:                 aws.String(r.tableOfflineQ),
 		Limit:                     aws.Int32(int32(limit)),
-		FilterExpression:          aws.String("user_id = :uid"),
+		FilterExpression:          aws.String("userId = :uid"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{":uid": &types.AttributeValueMemberS{Value: userID}},
 	})
 	if err != nil {
@@ -122,12 +137,34 @@ func (r *DynamoRepository) ListOfflineQueueByUser(ctx context.Context, userID st
 }
 
 func (r *DynamoRepository) MarkOfflineActionProcessed(ctx context.Context, queueID string) error {
+	lookup, err := r.client.Scan(ctx, &dynamodb.ScanInput{
+		TableName:                 aws.String(r.tableOfflineQ),
+		Limit:                     aws.Int32(1),
+		FilterExpression:          aws.String("queueId = :qid"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{":qid": &types.AttributeValueMemberS{Value: queueID}},
+	})
+	if err != nil {
+		return err
+	}
+	if len(lookup.Items) == 0 {
+		return fmt.Errorf("offline queue item not found: %s", queueID)
+	}
+
+	var item models.OfflineQueueItem
+	if err := attributevalue.UnmarshalMap(lookup.Items[0], &item); err != nil {
+		return err
+	}
+	if item.PatientID == "" || item.Timestamp == "" {
+		return fmt.Errorf("offline queue item missing keys: patientId/timestamp")
+	}
+
 	_, err := r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableOfflineQ),
 		Key: map[string]types.AttributeValue{
-			"queue_id": &types.AttributeValueMemberS{Value: queueID},
+			"patientId": &types.AttributeValueMemberS{Value: item.PatientID},
+			"timestamp": &types.AttributeValueMemberS{Value: item.Timestamp},
 		},
-		UpdateExpression: aws.String("SET #status = :status, processed_at = :processed_at"),
+		UpdateExpression: aws.String("SET #status = :status, processedAt = :processed_at"),
 		ExpressionAttributeNames: map[string]string{
 			"#status": "status",
 		},
@@ -155,7 +192,7 @@ func (r *DynamoRepository) ListASHATaskLogs(ctx context.Context, ashaUserID stri
 	out, err := r.client.Scan(ctx, &dynamodb.ScanInput{
 		TableName:                 aws.String(r.tableTaskLogs),
 		Limit:                     aws.Int32(int32(limit)),
-		FilterExpression:          aws.String("asha_user_id = :aid"),
+		FilterExpression:          aws.String("ashaUserId = :aid"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{":aid": &types.AttributeValueMemberS{Value: ashaUserID}},
 	})
 	if err != nil {

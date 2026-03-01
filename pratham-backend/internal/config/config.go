@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Config centralizes all runtime parameters for the Lambda.
@@ -23,6 +24,9 @@ type Config struct {
 	S3DocumentsBucket    string
 	S3VoiceBucket        string
 	OpenSearchEndpoint   string
+	BedrockModelID       string
+	BedrockRegion        string
+	TranscribeLanguages  []string
 	CognitoUserPoolID    string
 	CognitoClientID      string
 	CognitoIssuer        string
@@ -46,6 +50,9 @@ func Load() (Config, error) {
 		S3DocumentsBucket:    getEnv("S3_BUCKET_DOCUMENTS", "prathamcare-medical-documents"),
 		S3VoiceBucket:        getEnv("S3_BUCKET_VOICE", "prathamcare-voice-recordings"),
 		OpenSearchEndpoint:   os.Getenv("OPENSEARCH_ENDPOINT"),
+		BedrockModelID:       os.Getenv("BEDROCK_MODEL_ID"),
+		BedrockRegion:        getEnv("BEDROCK_REGION", getEnv("AWS_REGION", "ap-south-1")),
+		TranscribeLanguages:  parseCSV(getEnv("TRANSCRIBE_LANGUAGE_OPTIONS", "hi-IN,kn-IN,ta-IN,te-IN,en-IN")),
 		CognitoUserPoolID:    os.Getenv("COGNITO_USER_POOL_ID"),
 		CognitoClientID:      os.Getenv("COGNITO_CLIENT_ID"),
 	}
@@ -65,4 +72,19 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func parseCSV(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

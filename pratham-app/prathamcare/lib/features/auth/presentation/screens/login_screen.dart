@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../data/repositories/cognito_auth_repository.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -10,11 +11,21 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final CognitoAuthRepository _authRepository = CognitoAuthRepository.instance;
+
   int selectedRole = 0;
   bool rememberMe = false;
   bool obscurePassword = true;
+  bool isSigningIn = false;
+  String? signInError;
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreExistingSession();
+  }
 
   @override
   void dispose() {
@@ -138,6 +149,13 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 18),
                               _buildSignInButton(),
+                              if (signInError != null) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  signInError!,
+                                  style: const TextStyle(color: AppColors.lightError, fontSize: 13),
+                                ),
+                              ],
                               const SizedBox(height: 32),
                               _buildOrLoginWith(),
                             ],
@@ -339,17 +357,7 @@ class _LoginScreenState extends State<LoginScreen> {
       width: double.infinity,
       height: 54,
       child: ElevatedButton(
-        onPressed: () {
-          if (selectedRole == 0) {
-            Navigator.of(context).pushReplacementNamed('/physician');
-            return;
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Only Physician dashboard is enabled right now.'),
-            ),
-          );
-        },
+        onPressed: isSigningIn ? null : _handleCognitoSignIn,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
@@ -357,19 +365,248 @@ class _LoginScreenState extends State<LoginScreen> {
           shadowColor: AppColors.primary.withValues(alpha: 0.2),
           shape: const StadiumBorder(),
         ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Sign In',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            SizedBox(width: 8),
-            Icon(Icons.arrow_forward_rounded, size: 18),
-          ],
-        ),
+        child: isSigningIn
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+            : const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Sign In',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(width: 8),
+                  Icon(Icons.arrow_forward_rounded, size: 18),
+                ],
+              ),
       ),
     );
+  }
+
+  Future<void> _handleCognitoSignIn() async {
+    setState(() {
+      isSigningIn = true;
+      signInError = null;
+    });
+
+    try {
+      final username = emailController.text.trim();
+      final password = passwordController.text.trim();
+      if (username.isEmpty || password.isEmpty) {
+        throw Exception('Username and password are required.');
+      }
+
+      if (await _authRepository.isSignedIn()) {
+        await _authRepository.signOut();
+      }
+
+      final signInOutcome = await _authRepository.signIn(username: username, password: password);
+      if (!signInOutcome.isSignedIn) {
+        if (signInOutcome.requiresNewPassword) {
+          final challengeInput = await _collectNewPasswordChallengeInput();
+          if (challengeInput == null) {
+            throw Exception('Sign-in cancelled. New password is required.');
+          }
+
+          final confirmOutcome = await _authRepository.confirmSignIn(
+            confirmationValue: challengeInput.newPassword,
+            fullName: challengeInput.fullName,
+          );
+          if (!confirmOutcome.isSignedIn) {
+            throw Exception(
+              'Challenge step pending: ${confirmOutcome.nextStep}. Please complete the required step in Cognito.',
+            );
+          }
+          await _authRepository.updateDisplayName(challengeInput.fullName);
+        } else {
+          throw Exception('Additional auth challenge required: ${signInOutcome.nextStep}.');
+        }
+      }
+
+      final tokenRole = await _authRepository.getRoleFromIdToken();
+      _syncSelectedRoleFromToken(tokenRole);
+
+      if (!mounted) {
+        return;
+      }
+      _routeByRole(tokenRole);
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        final message = e.toString().replaceFirst('Exception: ', '');
+        if (message.contains('already signed in')) {
+          signInError = null;
+        } else {
+          signInError = message;
+        }
+      });
+      if (e.toString().contains('already signed in')) {
+        await _restoreExistingSession();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSigningIn = false);
+      }
+    }
+  }
+
+  Future<_NewPasswordChallengeInput?> _collectNewPasswordChallengeInput() async {
+    final fullNameController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    String? validationError;
+
+    final result = await showDialog<_NewPasswordChallengeInput>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Set New Password'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: fullNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name',
+                        hintText: 'Enter your full name',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: newPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'New Password',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: confirmPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm New Password',
+                      ),
+                    ),
+                    if (validationError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        validationError!,
+                        style: const TextStyle(color: AppColors.lightError, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final name = fullNameController.text.trim();
+                    final pass = newPasswordController.text.trim();
+                    final confirm = confirmPasswordController.text.trim();
+
+                    if (name.isEmpty) {
+                      setDialogState(() => validationError = 'Full name is required.');
+                      return;
+                    }
+                    if (pass.length < 8) {
+                      setDialogState(() => validationError = 'Password must be at least 8 characters.');
+                      return;
+                    }
+                    if (pass != confirm) {
+                      setDialogState(() => validationError = 'Passwords do not match.');
+                      return;
+                    }
+
+                    Navigator.of(context).pop(
+                      _NewPasswordChallengeInput(fullName: name, newPassword: pass),
+                    );
+                  },
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    fullNameController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
+    return result;
+  }
+
+  Future<void> _restoreExistingSession() async {
+    try {
+      final signedIn = await _authRepository.isSignedIn();
+      if (!signedIn || !mounted) {
+        return;
+      }
+
+      final tokenRole = await _authRepository.getRoleFromIdToken();
+      _syncSelectedRoleFromToken(tokenRole);
+      _routeByRole(tokenRole);
+    } catch (_) {
+      // Keep user on login screen if session restore fails.
+    }
+  }
+
+  void _syncSelectedRoleFromToken(String? tokenRole) {
+    if (tokenRole == null || tokenRole.isEmpty) {
+      return;
+    }
+    final normalized = tokenRole.trim().toLowerCase();
+    final nextRoleIndex = switch (normalized) {
+      'doctor' => 0,
+      'asha_worker' => 1,
+      'asha' => 1,
+      _ => 2,
+    };
+
+    if (mounted && selectedRole != nextRoleIndex) {
+      setState(() => selectedRole = nextRoleIndex);
+    }
+  }
+
+  void _routeByRole(String? tokenRole) {
+    final normalized = (tokenRole ?? '').trim().toLowerCase();
+    if (!mounted) {
+      return;
+    }
+    switch (normalized) {
+      case 'doctor':
+        Navigator.of(context).pushReplacementNamed('/physician');
+        return;
+      case 'asha_worker':
+      case 'asha':
+        Navigator.of(context).pushReplacementNamed('/asha');
+        return;
+      case 'clinic_admin':
+      case 'ops_admin':
+      case 'admin':
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+        return;
+      default:
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+        return;
+    }
   }
 
   Widget _buildOrLoginWith() {
@@ -464,4 +701,14 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+}
+
+class _NewPasswordChallengeInput {
+  const _NewPasswordChallengeInput({
+    required this.fullName,
+    required this.newPassword,
+  });
+
+  final String fullName;
+  final String newPassword;
 }

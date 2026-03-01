@@ -570,7 +570,7 @@ class _PhysicianHomeScreenState extends State<PhysicianHomeScreen> {
       ('Home', Icons.home_outlined),
       ('Schedule', Icons.calendar_month_outlined),
       ('Patients', Icons.groups_outlined),
-      ('Chat', Icons.chat_bubble_outline_rounded),
+      ('Profile', Icons.person_outline_rounded),
     ];
 
     return BottomAppBar(
@@ -604,8 +604,16 @@ class _PhysicianHomeScreenState extends State<PhysicianHomeScreen> {
   Widget _navItem(int index, String label, IconData icon) {
     final active = index == selectedBottomTab;
     return InkWell(
-      onTap: () {
+      onTap: () async {
         setState(() => selectedBottomTab = index);
+        if (label == 'Profile') {
+          await Navigator.of(context).pushNamed('/profile');
+          if (!mounted) {
+            return;
+          }
+          setState(() => selectedBottomTab = 0);
+          return;
+        }
         _showTap(label);
       },
       borderRadius: BorderRadius.circular(12),

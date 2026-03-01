@@ -427,6 +427,184 @@ LIMIT $2`
 	return out, rows.Err()
 }
 
+func (r *PgxRepository) CreateVoiceJob(ctx context.Context, job models.VoiceJob) (models.VoiceJob, error) {
+	q := `
+INSERT INTO voice_jobs (
+	patient_id, asha_user_id, encounter_id, s3_bucket, s3_key, language_code, context,
+	transcription_job_id, processing_status, error_code, error_message, processing_started_at, processing_completed_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+RETURNING voice_job_id, COALESCE(patient_id::text, ''), asha_user_id::text, COALESCE(encounter_id::text, ''), s3_bucket, s3_key,
+	language_code, context, COALESCE(transcription_job_id, ''), processing_status, COALESCE(error_code, ''), COALESCE(error_message, ''),
+	COALESCE(processing_started_at, NOW()), COALESCE(processing_completed_at, NOW()), created_at, updated_at`
+
+	var out models.VoiceJob
+	err := r.pool.QueryRow(ctx, q,
+		nullIfEmpty(job.PatientID),
+		job.ASHAUserID,
+		nullIfEmpty(job.EncounterID),
+		job.S3Bucket,
+		job.S3Key,
+		nullIfEmpty(job.LanguageCode),
+		nullIfEmpty(job.Context),
+		nullIfEmpty(job.TranscriptionJobID),
+		nullIfEmpty(job.ProcessingStatus),
+		nullIfEmpty(job.ErrorCode),
+		nullIfEmpty(job.ErrorMessage),
+		nullIfZeroTime(job.ProcessingStartedAt),
+		nullIfZeroTime(job.ProcessingCompletedAt),
+	).Scan(
+		&out.VoiceJobID,
+		&out.PatientID,
+		&out.ASHAUserID,
+		&out.EncounterID,
+		&out.S3Bucket,
+		&out.S3Key,
+		&out.LanguageCode,
+		&out.Context,
+		&out.TranscriptionJobID,
+		&out.ProcessingStatus,
+		&out.ErrorCode,
+		&out.ErrorMessage,
+		&out.ProcessingStartedAt,
+		&out.ProcessingCompletedAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) UpdateVoiceJobStatus(ctx context.Context, voiceJobID, status, transcriptionJobID, errorCode, errorMessage string, completedAt *time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+UPDATE voice_jobs
+SET processing_status = $2,
+	transcription_job_id = COALESCE(NULLIF($3, ''), transcription_job_id),
+	error_code = NULLIF($4, ''),
+	error_message = NULLIF($5, ''),
+	processing_completed_at = COALESCE($6, processing_completed_at),
+	updated_at = NOW()
+WHERE voice_job_id = $1`,
+		voiceJobID, status, transcriptionJobID, errorCode, errorMessage, completedAt)
+	return err
+}
+
+func (r *PgxRepository) EnsurePatientByExternalID(ctx context.Context, externalID string) (models.Patient, error) {
+	if externalID == "" {
+		return models.Patient{}, fmt.Errorf("external patient id is required")
+	}
+
+	var out models.Patient
+	err := r.pool.QueryRow(ctx, `
+SELECT patient_id, fhir_patient_id, COALESCE(abha_id, ''), full_name, COALESCE(gender, ''), COALESCE(date_of_birth::text, ''),
+	COALESCE(phone, ''), COALESCE(preferred_language, ''), COALESCE(primary_clinic_id::text, ''), source_system, read_only,
+	COALESCE(last_synced_at, NOW()), created_at, updated_at
+FROM patients
+WHERE patient_id::text = $1 OR fhir_patient_id = $1
+LIMIT 1`, externalID).Scan(
+		&out.PatientID,
+		&out.FHIRPatientID,
+		&out.ABHAID,
+		&out.FullName,
+		&out.Gender,
+		&out.DateOfBirth,
+		&out.Phone,
+		&out.PreferredLanguage,
+		&out.PrimaryClinicID,
+		&out.SourceSystem,
+		&out.ReadOnly,
+		&out.LastSyncedAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	if err == nil {
+		return out, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return models.Patient{}, err
+	}
+
+	return r.UpsertPatientIndex(ctx, models.Patient{
+		FHIRPatientID:     externalID,
+		FullName:          "Unknown Patient",
+		SourceSystem:      "app",
+		ReadOnly:          false,
+		PreferredLanguage: "hi",
+		LastSyncedAt:      time.Now().UTC(),
+	})
+}
+
+func (r *PgxRepository) CreateEncounter(ctx context.Context, encounter models.EncounterRecord) (models.EncounterRecord, error) {
+	q := `
+INSERT INTO encounters (
+	patient_id, asha_user_id, clinic_id, visit_type, status, occurred_at,
+	source_audio_bucket, source_audio_key, transcription_text, translation_text,
+	extracted_entities, clinical_alerts, fhir_encounter_id, sync_status, idempotency_key
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15)
+RETURNING encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
+	COALESCE(source_audio_bucket, ''), COALESCE(source_audio_key, ''), COALESCE(transcription_text, ''), COALESCE(translation_text, ''),
+	extracted_entities::text, clinical_alerts::text, COALESCE(fhir_encounter_id, ''), sync_status::text, COALESCE(idempotency_key, ''),
+	created_at, updated_at`
+
+	var out models.EncounterRecord
+	err := r.pool.QueryRow(ctx, q,
+		encounter.PatientID,
+		encounter.ASHAUserID,
+		nullIfEmpty(encounter.ClinicID),
+		nullIfEmpty(encounter.VisitType),
+		nullIfEmpty(encounter.Status),
+		encounter.OccurredAt,
+		nullIfEmpty(encounter.SourceAudioBucket),
+		nullIfEmpty(encounter.SourceAudioKey),
+		nullIfEmpty(encounter.TranscriptionText),
+		nullIfEmpty(encounter.TranslationText),
+		defaultJSON(encounter.ExtractedEntities, "{}"),
+		defaultJSON(encounter.ClinicalAlerts, "[]"),
+		nullIfEmpty(encounter.FHIREncounterID),
+		nullIfEmpty(encounter.SyncStatus),
+		nullIfEmpty(encounter.IdempotencyKey),
+	).Scan(
+		&out.EncounterID,
+		&out.PatientID,
+		&out.ASHAUserID,
+		&out.ClinicID,
+		&out.VisitType,
+		&out.Status,
+		&out.OccurredAt,
+		&out.SourceAudioBucket,
+		&out.SourceAudioKey,
+		&out.TranscriptionText,
+		&out.TranslationText,
+		&out.ExtractedEntities,
+		&out.ClinicalAlerts,
+		&out.FHIREncounterID,
+		&out.SyncStatus,
+		&out.IdempotencyKey,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) CreateEncounterAlerts(ctx context.Context, encounterID string, alerts []models.EncounterAlert) error {
+	if len(alerts) == 0 {
+		return nil
+	}
+	for _, alert := range alerts {
+		_, err := r.pool.Exec(ctx, `
+INSERT INTO encounter_alerts (encounter_id, severity, alert_code, message, metadata)
+VALUES ($1,$2,$3,$4,$5::jsonb)`,
+			encounterID,
+			nullIfEmpty(alert.Severity),
+			nullIfEmpty(alert.AlertCode),
+			alert.Message,
+			defaultJSON(alert.Metadata, "{}"),
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func nullIfEmpty(v string) any {
 	if v == "" {
 		return nil
@@ -439,6 +617,13 @@ func nullIfZeroTime(t time.Time) any {
 		return nil
 	}
 	return t
+}
+
+func defaultJSON(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 var _ Repository = (*PgxRepository)(nil)

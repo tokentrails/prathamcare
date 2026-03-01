@@ -22,7 +22,7 @@ func main() {
 	}
 	defer deps.Close()
 
-	h := api.NewHandler(cfg)
+	h := api.NewHandler(cfg, deps)
 	lambda.Start(func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 		return h.Handle(ctx, req)
 	})

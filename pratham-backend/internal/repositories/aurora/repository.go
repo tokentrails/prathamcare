@@ -23,4 +23,11 @@ type Repository interface {
 
 	CreatePatientRemark(ctx context.Context, remark models.PatientRemark) (models.PatientRemark, error)
 	ListPatientRemarks(ctx context.Context, patientID string, limit int) ([]models.PatientRemark, error)
+
+	CreateVoiceJob(ctx context.Context, job models.VoiceJob) (models.VoiceJob, error)
+	UpdateVoiceJobStatus(ctx context.Context, voiceJobID, status, transcriptionJobID, errorCode, errorMessage string, completedAt *time.Time) error
+
+	EnsurePatientByExternalID(ctx context.Context, externalID string) (models.Patient, error)
+	CreateEncounter(ctx context.Context, encounter models.EncounterRecord) (models.EncounterRecord, error)
+	CreateEncounterAlerts(ctx context.Context, encounterID string, alerts []models.EncounterAlert) error
 }

@@ -158,7 +158,7 @@ func (r *DynamoRepository) MarkOfflineActionProcessed(ctx context.Context, queue
 		return fmt.Errorf("offline queue item missing keys: patientId/timestamp")
 	}
 
-	_, err := r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	_, err = r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(r.tableOfflineQ),
 		Key: map[string]types.AttributeValue{
 			"patientId": &types.AttributeValueMemberS{Value: item.PatientID},

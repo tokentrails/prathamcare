@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/MicahParks/keyfunc/v2"
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -50,11 +49,8 @@ func (a *Authenticator) Close() {
 	}
 }
 
-func (a *Authenticator) Authorize(req events.APIGatewayProxyRequest, allowedRoles ...string) (Claims, error) {
-	tok := strings.TrimSpace(req.Headers["Authorization"])
-	if tok == "" {
-		tok = strings.TrimSpace(req.Headers["authorization"])
-	}
+func (a *Authenticator) Authorize(headers map[string]string, allowedRoles ...string) (Claims, error) {
+	tok := strings.TrimSpace(headerValue(headers, "Authorization"))
 	if tok == "" {
 		return Claims{}, errors.New("missing authorization header")
 	}
@@ -165,4 +161,20 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func headerValue(headers map[string]string, name string) string {
+	if headers == nil {
+		return ""
+	}
+	if v, ok := headers[name]; ok && strings.TrimSpace(v) != "" {
+		return v
+	}
+	lower := strings.ToLower(name)
+	for k, v := range headers {
+		if strings.ToLower(k) == lower && strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

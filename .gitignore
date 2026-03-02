@@ -12,6 +12,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+env.json
+**/env.json
 **/.env
 **/.env.*
 !**/.env.example
@@ -83,3 +85,8 @@ node_modules/
 *.tfstate
 *.tfstate.*
 cdk.out/
+pratham-backend/bootstrap
+pratham-backend/lambda.zip
+
+# Local Lambda invoke/test payloads
+pratham-backend/event-*.json

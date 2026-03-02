@@ -6,7 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,33 +35,109 @@ type healthResponse struct {
 
 func NewHandler(cfg config.Config, deps *app.Dependencies) *Handler {
 	h := &Handler{cfg: cfg, deps: deps}
+	if strings.EqualFold(os.Getenv("DISABLE_AUTH_INIT"), "true") {
+		log.Printf("auth init disabled via DISABLE_AUTH_INIT=true")
+		return h
+	}
+	authInitTimeout := authInitTimeoutFromEnv()
 	if cfg.CognitoIssuer != "" && cfg.CognitoJWKSURL != "" {
-		auth, err := middleware.NewAuthenticator(middleware.AuthConfig{
-			Issuer:   cfg.CognitoIssuer,
-			JWKSURL:  cfg.CognitoJWKSURL,
-			ClientID: cfg.CognitoClientID,
-		})
-		if err == nil {
+		authCh := make(chan *middleware.Authenticator, 1)
+		errCh := make(chan error, 1)
+		go func() {
+			auth, err := middleware.NewAuthenticator(middleware.AuthConfig{
+				Issuer:   cfg.CognitoIssuer,
+				JWKSURL:  cfg.CognitoJWKSURL,
+				ClientID: cfg.CognitoClientID,
+			})
+			if err != nil {
+				errCh <- err
+				return
+			}
+			authCh <- auth
+		}()
+
+		select {
+		case auth := <-authCh:
 			h.auth = auth
+			log.Printf("auth init success")
+		case err := <-errCh:
+			log.Printf("warning: auth init failed, continuing without auth: %v", err)
+		case <-time.After(authInitTimeout):
+			log.Printf("warning: auth init timeout after %s, continuing without auth", authInitTimeout)
 		}
 	}
 	return h
 }
 
-func (h *Handler) Handle(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	path := strings.TrimSuffix(req.Path, "/")
+func authInitTimeoutFromEnv() time.Duration {
+	const fallback = 5000
+	raw := strings.TrimSpace(os.Getenv("AUTH_INIT_TIMEOUT_MS"))
+	if raw == "" {
+		return time.Duration(fallback) * time.Millisecond
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 {
+		log.Printf("warning: invalid AUTH_INIT_TIMEOUT_MS=%q; using default %dms", raw, fallback)
+		return time.Duration(fallback) * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest) (resp events.APIGatewayV2HTTPResponse, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("panic recovered in handler path=%s method=%s panic=%v stack=%s", req.RawPath, req.RequestContext.HTTP.Method, rec, string(debug.Stack()))
+			body, _ := json.Marshal(map[string]any{
+				"error": map[string]any{
+					"code":      "INTERNAL_SERVER_ERROR",
+					"message":   "unexpected server error",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				},
+			})
+			resp = events.APIGatewayV2HTTPResponse{
+				StatusCode: http.StatusInternalServerError,
+				Headers:    corsHeaders(map[string]string{"Content-Type": "application/json"}),
+				Body: string(body),
+			}
+			err = nil
+		}
+	}()
+
+	method := strings.ToUpper(strings.TrimSpace(req.RequestContext.HTTP.Method))
+	path := strings.TrimSpace(req.RawPath)
+	if path == "" {
+		path = strings.TrimSpace(req.RequestContext.HTTP.Path)
+	}
+	path = strings.TrimSuffix(path, "/")
+	// API Gateway stage paths can arrive as /{stage}/route (for example /dev/health).
+	// Normalize to route-only path so handler routing remains stable across stage mappings.
+	if stage := strings.TrimSpace(req.RequestContext.Stage); stage != "" {
+		stagePrefix := "/" + stage
+		switch {
+		case path == stagePrefix:
+			path = "/"
+		case strings.HasPrefix(path, stagePrefix+"/"):
+			path = strings.TrimPrefix(path, stagePrefix)
+		}
+	}
 	if path == "" {
 		path = "/"
 	}
+	if method == http.MethodOptions {
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: http.StatusNoContent,
+			Headers:    corsHeaders(nil),
+		}, nil
+	}
 
 	switch {
-	case req.HTTPMethod == http.MethodGet && path == "/health":
+	case method == http.MethodGet && path == "/health":
 		return h.json(http.StatusOK, healthResponse{
 			Status:    "ok",
 			Env:       h.cfg.AppEnv,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
-	case req.HTTPMethod == http.MethodGet && path == "/ready":
+	case method == http.MethodGet && path == "/ready":
 		if h.auth == nil {
 			return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "auth middleware is not initialized")
 		}
@@ -65,11 +145,11 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayProxyRequest)
 			"status":    "ready",
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
-	case req.HTTPMethod == http.MethodGet && path == "/api/v1/me":
+	case method == http.MethodGet && path == "/api/v1/me":
 		if h.auth == nil {
 			return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "auth middleware is not initialized")
 		}
-		claims, err := h.auth.Authorize(req, "doctor", "asha_worker", "clinic_admin", "ops_admin")
+		claims, err := h.auth.Authorize(req.Headers, "doctor", "asha_worker", "clinic_admin", "ops_admin")
 		if err != nil {
 			return h.error(http.StatusUnauthorized, "AUTHENTICATION_FAILED", err.Error())
 		}
@@ -82,7 +162,7 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayProxyRequest)
 				"groups": authClaims.CognitoGroups,
 			},
 		})
-	case req.HTTPMethod == http.MethodPost && path == "/api/v1/voice/presign":
+	case method == http.MethodPost && path == "/api/v1/voice/presign":
 		claims, err := h.authorize(req, "asha_worker")
 		if err != nil {
 			return h.error(http.StatusUnauthorized, "AUTHENTICATION_FAILED", err.Error())
@@ -133,11 +213,29 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayProxyRequest)
 			"expires_in":  900,
 			"recording_id": recordingID,
 		})
-	case req.HTTPMethod == http.MethodPost && path == "/api/v1/voice/transcribe":
+	case method == http.MethodPost && path == "/api/v1/voice/transcribe":
 		return h.handleVoiceTranscribe(ctx, req)
-	case req.HTTPMethod == http.MethodPost && path == "/api/v1/encounters":
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/v1/voice/transcribe/"):
+		jobPrefix := "/api/v1/voice/transcribe/job/"
+		if strings.HasPrefix(path, jobPrefix) {
+			transcriptionJobID := strings.TrimPrefix(path, jobPrefix)
+			if strings.TrimSpace(transcriptionJobID) == "" {
+				return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "transcription_job_id is required")
+			}
+			return h.handleVoiceTranscribeJobStatus(ctx, req, transcriptionJobID)
+		}
+		voiceJobID := strings.TrimPrefix(path, "/api/v1/voice/transcribe/")
+		if strings.TrimSpace(voiceJobID) == "" {
+			return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "voice_job_id is required")
+		}
+		return h.handleVoiceTranscribeStatus(ctx, req, voiceJobID)
+	case method == http.MethodPost && path == "/api/v1/encounters":
 		return h.handleEncounterCreate(ctx, req)
-	case req.HTTPMethod == http.MethodGet && path == "/api/v1/sync/status":
+	case method == http.MethodGet && path == "/api/v1/voice/history":
+		return h.handleVoiceHistory(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/encounters/history":
+		return h.handleEncounterHistory(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/sync/status":
 		claims, err := h.authorize(req, "asha_worker")
 		if err != nil {
 			return h.error(http.StatusUnauthorized, "AUTHENTICATION_FAILED", err.Error())
@@ -158,16 +256,15 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayProxyRequest)
 			"pending_actions": pending,
 			"last_checked_at": time.Now().UTC().Format(time.RFC3339),
 		})
+	case method == http.MethodPost && path == "/api/v1/sync/replay":
+		return h.handleSyncReplay(ctx, req)
 	default:
 		return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
 	}
 }
 
-func (h *Handler) authorize(req events.APIGatewayProxyRequest, allowedRoles ...string) (middleware.Claims, error) {
-	tok := strings.TrimSpace(req.Headers["Authorization"])
-	if tok == "" {
-		tok = strings.TrimSpace(req.Headers["authorization"])
-	}
+func (h *Handler) authorize(req events.APIGatewayV2HTTPRequest, allowedRoles ...string) (middleware.Claims, error) {
+	tok := strings.TrimSpace(headerValue(req.Headers, "Authorization"))
 	if strings.EqualFold(tok, "Bearer demo-token") && strings.EqualFold(h.cfg.AppEnv, "dev") {
 		return middleware.Claims{
 			Role:    "asha_worker",
@@ -177,7 +274,7 @@ func (h *Handler) authorize(req events.APIGatewayProxyRequest, allowedRoles ...s
 	if h.auth == nil {
 		return middleware.Claims{}, fmt.Errorf("auth middleware is not initialized")
 	}
-	return h.auth.Authorize(req, allowedRoles...)
+	return h.auth.Authorize(req.Headers, allowedRoles...)
 }
 
 func isSupportedAudioType(contentType string) bool {
@@ -209,22 +306,23 @@ func newID() string {
 	return hex.EncodeToString(buf)
 }
 
-func (h *Handler) json(statusCode int, payload any) (events.APIGatewayProxyResponse, error) {
+func (h *Handler) json(statusCode int, payload any) (events.APIGatewayV2HTTPResponse, error) {
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return events.APIGatewayProxyResponse{StatusCode: http.StatusInternalServerError}, nil
+		return events.APIGatewayV2HTTPResponse{
+			StatusCode: http.StatusInternalServerError,
+			Headers:    corsHeaders(map[string]string{"Content-Type": "application/json"}),
+		}, nil
 	}
 
-	return events.APIGatewayProxyResponse{
+	return events.APIGatewayV2HTTPResponse{
 		StatusCode: statusCode,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: string(b),
+		Headers:    corsHeaders(map[string]string{"Content-Type": "application/json"}),
+		Body:       string(b),
 	}, nil
 }
 
-func (h *Handler) error(statusCode int, code string, message string) (events.APIGatewayProxyResponse, error) {
+func (h *Handler) error(statusCode int, code string, message string) (events.APIGatewayV2HTTPResponse, error) {
 	return h.json(statusCode, map[string]any{
 		"error": map[string]any{
 			"code":      code,
@@ -232,4 +330,32 @@ func (h *Handler) error(statusCode int, code string, message string) (events.API
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		},
 	})
+}
+
+func headerValue(headers map[string]string, name string) string {
+	if headers == nil {
+		return ""
+	}
+	if v, ok := headers[name]; ok && strings.TrimSpace(v) != "" {
+		return v
+	}
+	lower := strings.ToLower(name)
+	for k, v := range headers {
+		if strings.ToLower(k) == lower && strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func corsHeaders(base map[string]string) map[string]string {
+	headers := map[string]string{
+		"Access-Control-Allow-Origin":  "*",
+		"Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		"Access-Control-Allow-Headers": "Authorization,Content-Type,X-Requested-With",
+	}
+	for k, v := range base {
+		headers[k] = v
+	}
+	return headers
 }

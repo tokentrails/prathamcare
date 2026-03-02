@@ -3,6 +3,8 @@ package awshttp
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,10 +41,8 @@ func (c *SignedClient) Do(ctx context.Context, service, method, url string, body
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	payloadHash, err := v4.HashPayload(bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
+	sum := sha256.Sum256(body)
+	payloadHash := hex.EncodeToString(sum[:])
 	creds, err := c.cfg.Credentials.Retrieve(ctx)
 	if err != nil {
 		return nil, err

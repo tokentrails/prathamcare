@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -17,6 +18,43 @@ class ApiClient {
     final res = await _client.get(
       Uri.parse('$baseUrl/api/v1/sync/status'),
       headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getVoiceHistory({
+    String? bearerToken,
+    int limit = 25,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/voice/history?limit=$limit'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getEncounterHistory({
+    String? bearerToken,
+    int limit = 25,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/encounters/history?limit=$limit'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> replaySync({
+    String? bearerToken,
+    int maxItems = 10,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/sync/replay'),
+      headers: _headers(token),
+      body: jsonEncode({'max_items': maxItems}),
     );
     return _decode(res);
   }
@@ -50,7 +88,6 @@ class ApiClient {
     required String language,
     required String context,
     required String patientId,
-    required String mockTranscription,
   }) async {
     final token = await _resolveToken(bearerToken);
     final res = await _client.post(
@@ -61,10 +98,54 @@ class ApiClient {
         'language': language,
         'context': context,
         'patient_id': patientId,
-        'mock_transcription': mockTranscription,
       }),
     );
     return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getVoiceTranscriptionStatus({
+    String? bearerToken,
+    required String voiceJobId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/voice/transcribe/$voiceJobId'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getVoiceTranscriptionStatusByJob({
+    String? bearerToken,
+    required String transcriptionJobId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/voice/transcribe/job/$transcriptionJobId'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<void> uploadVoiceBytes({
+    required String uploadUrl,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final res = await _client.put(
+      Uri.parse(uploadUrl),
+      headers: {
+        'Content-Type': contentType,
+      },
+      body: bytes,
+    );
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(
+        statusCode: res.statusCode,
+        code: 'UPLOAD_FAILED',
+        message: 'S3 upload failed with status ${res.statusCode}',
+      );
+    }
   }
 
   Future<Map<String, dynamic>> submitEncounter({
@@ -73,7 +154,10 @@ class ApiClient {
     required String visitType,
     required String occurredAt,
     required String transcription,
+    String? translation,
+    String? sourceAudioKey,
     required Map<String, dynamic> extractedEntities,
+    dynamic medicalEntities,
     required List<dynamic> clinicalAlerts,
   }) async {
     final token = await _resolveToken(bearerToken);
@@ -85,7 +169,10 @@ class ApiClient {
         'visit_type': visitType,
         'occurred_at': occurredAt,
         'transcription': transcription,
+        if (translation != null && translation.isNotEmpty) 'translation': translation,
+        if (sourceAudioKey != null && sourceAudioKey.isNotEmpty) 'source_audio_key': sourceAudioKey,
         'extracted_entities': extractedEntities,
+        if (medicalEntities != null) 'medical_entities': medicalEntities,
         'clinical_alerts': clinicalAlerts,
       }),
     );

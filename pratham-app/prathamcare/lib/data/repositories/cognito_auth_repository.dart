@@ -50,6 +50,30 @@ class CognitoAuthRepository {
     return Amplify.Auth.signOut();
   }
 
+  Future<PasswordResetStartOutcome> startForgotPassword({
+    required String username,
+  }) async {
+    final result = await Amplify.Auth.resetPassword(username: username);
+    final details = result.nextStep.codeDeliveryDetails;
+    return PasswordResetStartOutcome(
+      isComplete: result.isPasswordReset,
+      destination: details?.destination ?? '',
+      deliveryMedium: details?.deliveryMedium.name ?? '',
+    );
+  }
+
+  Future<void> confirmForgotPassword({
+    required String username,
+    required String confirmationCode,
+    required String newPassword,
+  }) {
+    return Amplify.Auth.confirmResetPassword(
+      username: username,
+      newPassword: newPassword,
+      confirmationCode: confirmationCode,
+    );
+  }
+
   Future<bool> isSignedIn() async {
     final session = await Amplify.Auth.fetchAuthSession();
     return session.isSignedIn;
@@ -180,4 +204,16 @@ class AuthSignInOutcome {
   final Map<String, dynamic> additionalInfo;
 
   bool get requiresNewPassword => nextStep == 'confirmSignInWithNewPassword';
+}
+
+class PasswordResetStartOutcome {
+  const PasswordResetStartOutcome({
+    required this.isComplete,
+    required this.destination,
+    required this.deliveryMedium,
+  });
+
+  final bool isComplete;
+  final String destination;
+  final String deliveryMedium;
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/network/api_client.dart';
+import 'asha_activity_screen.dart';
 import 'voice_visit_screen.dart';
 
 class ASHAHomeScreen extends StatefulWidget {
@@ -15,87 +17,373 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
   final ApiClient _apiClient = ApiClient();
 
   int _selectedBottomTab = 0;
+  bool _loading = false;
   int _pendingSyncCount = 0;
-  bool _loadingSync = false;
+  int _queuedCount = 0;
+  int _encounterCount = 0;
+  int _transcriptionCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadSyncStatus();
+    _loadDashboardData();
   }
 
-  Future<void> _loadSyncStatus() async {
-    setState(() => _loadingSync = true);
+  Future<void> _loadDashboardData() async {
+    setState(() => _loading = true);
     try {
-      final res = await _apiClient.getSyncStatus();
+      final syncFuture = _apiClient.getSyncStatus();
+      final encounterFuture = _apiClient.getEncounterHistory(limit: 30);
+      final voiceFuture = _apiClient.getVoiceHistory(limit: 30);
+      final results = await Future.wait([syncFuture, encounterFuture, voiceFuture]);
+
+      final sync = results[0] as Map<String, dynamic>;
+      final encounter = results[1] as Map<String, dynamic>;
+      final voice = results[2] as Map<String, dynamic>;
+
+      final queued = _asMapList(encounter['queued']);
+      final encounters = _asMapList(encounter['encounters']);
+      final voiceItems = _asMapList(voice['items']);
+
+      if (!mounted) {
+        return;
+      }
       setState(() {
-        _pendingSyncCount = (res['pending_actions'] as num?)?.toInt() ?? 0;
+        _pendingSyncCount = (sync['pending_actions'] as num?)?.toInt() ?? 0;
+        _queuedCount = queued.length;
+        _encounterCount = encounters.length;
+        _transcriptionCount = voiceItems.length;
       });
     } catch (_) {
-      // Keep default for now. Auth wiring will be added with Cognito token flow.
+      // Keep functional UI and current values.
     } finally {
       if (mounted) {
-        setState(() => _loadingSync = false);
+        setState(() => _loading = false);
       }
     }
   }
 
-  Future<void> _openVoiceVisit() async {
+  Future<void> _openCreateEncounter() async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) => const VoiceVisitScreen(patientId: 'patient-demo-001'),
+        builder: (_) => const VoiceVisitScreen(patientId: 'demo-ka-patient-0001'),
       ),
     );
-
     if (result == true) {
-      _loadSyncStatus();
+      await _loadDashboardData();
     }
+  }
+
+  Future<void> _openJobs(ASHAJobsView view) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ASHAActivityScreen(initialView: view),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    await _loadDashboardData();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.sizeOf(context).width >= 1024;
     return Scaffold(
-      backgroundColor: const Color(0xFFF7FBFA),
+      backgroundColor: AppColors.lightBackground,
       body: Row(
         children: [
           if (isDesktop) _buildDesktopSidebar(),
           Expanded(
             child: SafeArea(
               bottom: false,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final desktopContent = constraints.maxWidth >= 980;
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1220),
-                      child: CustomScrollView(
-                        slivers: [
-                          SliverToBoxAdapter(child: _buildHeader()),
-                          SliverToBoxAdapter(child: _buildStatusPills()),
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16, 18, 16, 120),
-                            sliver: SliverToBoxAdapter(
-                              child: desktopContent ? _buildDesktopContent() : _buildMobileContent(),
-                            ),
+              child: RefreshIndicator(
+                onRefresh: _loadDashboardData,
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildHeader(isDesktop)),
+                    SliverToBoxAdapter(child: _buildTopMenu()),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                      sliver: SliverToBoxAdapter(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1140),
+                            child: isDesktop ? _buildDesktopContent() : _buildMobileContent(),
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _openVoiceVisit,
-        backgroundColor: AppColors.primary,
-        child: const Icon(Icons.mic_none_rounded, color: Colors.white),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: isDesktop ? null : _buildBottomNavigation(),
+    );
+  }
+
+  Widget _buildHeader(bool isDesktop) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Good Morning',
+                  style: TextStyle(color: AppColors.lightTextMuted, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'ASHA Operations Dashboard',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primarySoft,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.cloud_done_rounded, size: 14, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Text(
+                  _pendingSyncCount == 0 ? 'All Synced' : '$_pendingSyncCount Pending Sync',
+                  style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: _loading ? null : _loadDashboardData,
+            icon: _loading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
+          ),
+          if (!isDesktop)
+            IconButton(
+              onPressed: () => _openJobs(ASHAJobsView.overview),
+              icon: const Icon(Icons.work_outline_rounded),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopMenu() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _MenuChip(
+              icon: Icons.dashboard_outlined,
+              label: 'Dashboard',
+              selected: true,
+              onTap: () {},
+            ),
+            const SizedBox(width: 8),
+            _MenuChip(
+              icon: Icons.work_outline_rounded,
+              label: 'Jobs',
+              selected: false,
+              onTap: () => _openJobs(ASHAJobsView.overview),
+            ),
+            const SizedBox(width: 8),
+            _MenuChip(
+              icon: Icons.pending_actions_rounded,
+              label: 'Queued',
+              selected: false,
+              onTap: () => _openJobs(ASHAJobsView.queued),
+            ),
+            const SizedBox(width: 8),
+            _MenuChip(
+              icon: Icons.assignment_turned_in_outlined,
+              label: 'Encounters',
+              selected: false,
+              onTap: () => _openJobs(ASHAJobsView.encounters),
+            ),
+            const SizedBox(width: 8),
+            _MenuChip(
+              icon: Icons.graphic_eq_rounded,
+              label: 'Transcriptions',
+              selected: false,
+              onTap: () => _openJobs(ASHAJobsView.transcriptions),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopContent() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 12,
+          child: Column(
+            children: [
+              _buildCreateEncounterPanel(),
+            ],
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          flex: 10,
+          child: _buildJobsListPanel(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileContent() {
+    return Column(
+      children: [
+        _buildCreateEncounterPanel(),
+        const SizedBox(height: 12),
+        _buildJobsListPanel(),
+      ],
+    );
+  }
+
+  Widget _buildCreateEncounterPanel() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F766E), Color(0xFF129186)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x250F766E),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 40,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.mic_none_rounded, color: Colors.white),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Create Encounter',
+                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Record or upload home visit audio, extract clinical insights with AI, and submit the encounter.',
+            style: TextStyle(color: Color(0xFFE2FFFB), fontSize: 13.5, height: 1.35),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: AppPillButton(
+                  onPressed: _openCreateEncounter,
+                  icon: Icons.add_rounded,
+                  label: 'Create Encounter',
+                  variant: AppPillButtonVariant.light,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: AppPillButton(
+                  onPressed: () => _openJobs(ASHAJobsView.overview),
+                  icon: Icons.work_outline_rounded,
+                  label: 'Open Jobs',
+                  variant: AppPillButtonVariant.dark,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobsListPanel() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Job Categories',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Track processing and encounter state in one place',
+            style: TextStyle(fontSize: 12.5, color: AppColors.lightTextMuted),
+          ),
+          const SizedBox(height: 12),
+          _JobListTile(
+            title: 'Queued Encounters',
+            subtitle: 'Pending retries or unresolved mappings',
+            count: _queuedCount,
+            icon: Icons.pending_actions_rounded,
+            accent: AppColors.lightWarning,
+            onTap: () => _openJobs(ASHAJobsView.queued),
+          ),
+          _JobListTile(
+            title: 'Encounters',
+            subtitle: 'Submitted visits and current sync status',
+            count: _encounterCount,
+            icon: Icons.assignment_turned_in_outlined,
+            accent: AppColors.primary,
+            onTap: () => _openJobs(ASHAJobsView.encounters),
+          ),
+          _JobListTile(
+            title: 'Transcriptions',
+            subtitle: 'Audio jobs and extraction completion',
+            count: _transcriptionCount,
+            icon: Icons.graphic_eq_rounded,
+            accent: AppColors.lightInfo,
+            onTap: () => _openJobs(ASHAJobsView.transcriptions),
+          ),
+        ],
+      ),
     );
   }
 
@@ -104,12 +392,12 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
       (icon: Icons.home_filled, label: 'Home'),
       (icon: Icons.calendar_today_outlined, label: 'Schedule'),
       (icon: Icons.groups_outlined, label: 'Patients'),
-      (icon: Icons.description_outlined, label: 'Reports'),
+      (icon: Icons.work_outline_rounded, label: 'Jobs'),
       (icon: Icons.person_outline_rounded, label: 'Profile'),
     ];
 
     return Container(
-      width: 236,
+      width: 246,
       decoration: const BoxDecoration(
         color: Color(0xFFFCFDFC),
         border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
@@ -138,7 +426,7 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
                 alignment: Alignment.center,
                 child: Image.asset(
                   'assets/images/pratham-logo.png',
-                  width: 166,
+                  width: 170,
                   fit: BoxFit.contain,
                 ),
               ),
@@ -171,7 +459,6 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
                       border: _selectedBottomTab == i ? Border.all(color: const Color(0x330F756D)) : null,
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         Icon(
                           items[i].icon,
@@ -211,7 +498,9 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _loadingSync ? 'Checking sync...' : (_pendingSyncCount == 0 ? 'All data synced' : '$_pendingSyncCount pending sync'),
+                      _loading
+                          ? 'Refreshing...'
+                          : (_pendingSyncCount == 0 ? 'All data synced' : '$_pendingSyncCount pending sync'),
                       style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -224,310 +513,74 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
     );
   }
 
-  Widget _buildDesktopContent() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            children: [
-              _buildStatsStrip(),
-              const SizedBox(height: 20),
-              _buildAiBriefing(),
-              const SizedBox(height: 20),
-              _buildQuickActions(),
+  Widget _buildBottomNavigation() {
+    const items = [
+      (icon: Icons.home_filled, label: 'Home'),
+      (icon: Icons.calendar_today_outlined, label: 'Schedule'),
+      (icon: Icons.groups_outlined, label: 'Patients'),
+      (icon: Icons.work_outline_rounded, label: 'Jobs'),
+      (icon: Icons.person_outline_rounded, label: 'Profile'),
+    ];
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFE7EEED)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1A0F766E),
+                blurRadius: 18,
+                offset: Offset(0, 6),
+              ),
             ],
           ),
-        ),
-        const SizedBox(width: 20),
-        Expanded(
-          child: _buildTodayVisits(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMobileContent() {
-    return Column(
-      children: [
-        _buildStatsStrip(),
-        const SizedBox(height: 20),
-        _buildAiBriefing(),
-        const SizedBox(height: 20),
-        _buildQuickActions(),
-        const SizedBox(height: 20),
-        _buildTodayVisits(),
-      ],
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Good morning,',
-                  style: TextStyle(color: Color(0xFF8A9099), fontSize: 13),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Sunita',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.notifications_none_rounded),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusPills() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFECFDF5),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.cloud_done_outlined, size: 14, color: Color(0xFF059669)),
-                const SizedBox(width: 6),
-                Text(
-                  _loadingSync ? 'Checking...' : (_pendingSyncCount == 0 ? 'Synced' : '$_pendingSyncCount Pending Sync'),
-                  style: const TextStyle(color: Color(0xFF059669), fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF9FF),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.location_on_outlined, size: 14, color: Color(0xFF0284C7)),
-                SizedBox(width: 6),
-                Text(
-                  'Hubballi Block',
-                  style: TextStyle(color: Color(0xFF0284C7), fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatsStrip() {
-    return Row(
-      children: const [
-        Expanded(child: _StatCard(value: '8', label: 'Visits\nToday', valueColor: AppColors.primary)),
-        SizedBox(width: 12),
-        Expanded(child: _StatCard(value: '3', label: 'High\nRisk', valueColor: Color(0xFFEF4444))),
-        SizedBox(width: 12),
-        Expanded(child: _StatCard(value: '2', label: 'Pending\nSync', valueColor: Color(0xFFF59E0B))),
-      ],
-    );
-  }
-
-  Widget _buildAiBriefing() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [BoxShadow(color: Color(0x1F0F756D), blurRadius: 14, offset: Offset(0, 4))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 4,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(colors: [Color(0xFF0F756D), Color(0xFF38BDF8)]),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.auto_awesome, size: 16, color: AppColors.primary),
-                    SizedBox(width: 8),
-                    Text(
-                      'AI BRIEFING',
-                      style: TextStyle(fontSize: 11, letterSpacing: 0.5, color: AppColors.primary, fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                const Text('8 visits today.', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 10),
-                Text.rich(
-                  TextSpan(
-                    style: const TextStyle(height: 1.5, color: Color(0xB30B1220), fontSize: 15),
-                    children: const [
-                      TextSpan(text: 'Priority: ', style: TextStyle(color: AppColors.lightError, fontWeight: FontWeight.w700)),
-                      TextSpan(text: 'Meena Devi needs urgent BP check due to yesterday\'s high reading.'),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                InkWell(
-                  onTap: () {},
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          child: Row(
+            children: List.generate(items.length, (index) {
+              final selected = _selectedBottomTab == index;
+              return Expanded(
+                child: InkWell(
+                  onTap: () => _handleNavTap(index),
+                  borderRadius: BorderRadius.circular(16),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOut,
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0x0D0F756D),
-                      border: Border.all(color: const Color(0x330F756D)),
-                      borderRadius: BorderRadius.circular(24),
+                      color: selected ? AppColors.primarySoft : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('View Today\'s Plan', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
-                        SizedBox(width: 6),
-                        Icon(Icons.arrow_forward_rounded, size: 16, color: AppColors.primary),
+                        Icon(
+                          items[index].icon,
+                          size: 20,
+                          color: selected ? AppColors.primary : const Color(0xFF98A8A6),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          items[index].label,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected ? AppColors.primary : const Color(0xFF94A3B8),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
-              ],
-            ),
+              );
+            }),
           ),
-        ],
+        ),
       ),
-    );
-  }
-
-  Widget _buildQuickActions() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 4),
-          child: Text('Quick Actions', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-        ),
-        const SizedBox(height: 12),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.55,
-          children: [
-            _ActionCard(
-              title: 'Voice Visit',
-              icon: Icons.mic_none_rounded,
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              onTap: _openVoiceVisit,
-            ),
-            _ActionCard(
-              title: 'Scan ABHA',
-              icon: Icons.qr_code_scanner_rounded,
-              onTap: () {},
-            ),
-            _ActionCard(
-              title: 'ANC Register',
-              icon: Icons.assignment_outlined,
-              onTap: () {},
-            ),
-            _ActionCard(
-              title: 'Emergency',
-              icon: Icons.warning_amber_rounded,
-              backgroundColor: const Color(0xFFFEF2F2),
-              foregroundColor: const Color(0xFFDC2626),
-              onTap: () {},
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTodayVisits() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text('Today\'s Visits', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-            ),
-            TextButton(onPressed: () {}, child: const Text('See All')),
-          ],
-        ),
-        const SizedBox(height: 10),
-        const _VisitCard(
-          patientName: 'Meena Devi',
-          time: '10:00 AM',
-          tag: 'ANC',
-          status: 'Pending',
-          risk: 'High Risk',
-          color: Color(0xFFEF4444),
-        ),
-        const SizedBox(height: 10),
-        const _VisitCard(
-          patientName: 'Priya Sharma',
-          time: '11:00 AM',
-          tag: 'ANC',
-          status: 'Pending',
-          risk: '',
-          color: Color(0xFFF59E0B),
-        ),
-        const SizedBox(height: 10),
-        const _VisitCard(
-          patientName: 'Raju Kumar',
-          time: '09:15 AM',
-          tag: 'FU',
-          status: 'Done',
-          risk: '',
-          color: Color(0xFF22C55E),
-          done: true,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBottomNavigation() {
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      currentIndex: _selectedBottomTab,
-      onTap: _handleNavTap,
-      selectedItemColor: AppColors.primary,
-      unselectedItemColor: const Color(0xFF94A3B8),
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Schedule'),
-        BottomNavigationBarItem(icon: Icon(Icons.groups_outlined), label: 'Patients'),
-        BottomNavigationBarItem(icon: Icon(Icons.description_outlined), label: 'Reports'),
-        BottomNavigationBarItem(icon: Icon(Icons.person_outline_rounded), label: 'Profile'),
-      ],
     );
   }
 
@@ -545,76 +598,70 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
       setState(() => _selectedBottomTab = 0);
       return;
     }
+    if (index == 3) {
+      setState(() => _selectedBottomTab = index);
+      await _openJobs(ASHAJobsView.overview);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _selectedBottomTab = 0);
+      return;
+    }
+
     setState(() => _selectedBottomTab = index);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('This section is coming soon.')),
     );
   }
-}
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({required this.value, required this.label, required this.valueColor});
-
-  final String value;
-  final String label;
-  final Color valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: const [BoxShadow(color: Color(0x140F756D), blurRadius: 8, offset: Offset(0, 2))],
-      ),
-      child: Column(
-        children: [
-          Text(value, style: TextStyle(color: valueColor, fontSize: 32, fontWeight: FontWeight.w700)),
-          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Color(0xFF8A9099))),
-        ],
-      ),
-    );
+  static List<Map<String, dynamic>> _asMapList(dynamic v) {
+    if (v is! List) {
+      return const [];
+    }
+    return v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
-    required this.title,
+class _MenuChip extends StatelessWidget {
+  const _MenuChip({
     required this.icon,
+    required this.label,
+    required this.selected,
     required this.onTap,
-    this.backgroundColor = Colors.white,
-    this.foregroundColor = const Color(0xFF0B1220),
   });
 
-  final String title;
   final IconData icon;
+  final String label;
+  final bool selected;
   final VoidCallback onTap;
-  final Color backgroundColor;
-  final Color foregroundColor;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(999),
       child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(28),
-          border: backgroundColor == Colors.white ? Border.all(color: const Color(0xFFE2E8F0)) : null,
-          boxShadow: const [BoxShadow(color: Color(0x12000000), blurRadius: 6, offset: Offset(0, 2))],
+          color: selected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? AppColors.primary : const Color(0xFFE2E8F0),
+          ),
         ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              backgroundColor: foregroundColor.withOpacity(backgroundColor == Colors.white ? 0.1 : 0.2),
-              child: Icon(icon, color: foregroundColor),
+            Icon(icon, size: 14, color: selected ? Colors.white : AppColors.lightTextMuted),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : AppColors.lightTextSecondary,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
             ),
-            Text(title, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: foregroundColor)),
           ],
         ),
       ),
@@ -622,96 +669,68 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class _VisitCard extends StatelessWidget {
-  const _VisitCard({
-    required this.patientName,
-    required this.time,
-    required this.tag,
-    required this.status,
-    required this.risk,
-    required this.color,
-    this.done = false,
+class _JobListTile extends StatelessWidget {
+  const _JobListTile({
+    required this.title,
+    required this.subtitle,
+    required this.count,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
   });
 
-  final String patientName;
-  final String time;
-  final String tag;
-  final String status;
-  final String risk;
-  final Color color;
-  final bool done;
+  final String title;
+  final String subtitle;
+  final int count;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: const [BoxShadow(color: Color(0x140F756D), blurRadius: 8, offset: Offset(0, 2))],
-      ),
-      child: Row(
-        children: [
-          Container(width: 6, height: done ? 90 : 106, color: color),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 19,
+              backgroundColor: accent.withOpacity(0.13),
+              child: Icon(icon, color: accent, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Text(time, style: TextStyle(color: done ? const Color(0xFF94A3B8) : const Color(0xFF8A9099))),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
-                        child: Text(tag, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF475569))),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
                   Text(
-                    patientName,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      decoration: done ? TextDecoration.lineThrough : null,
-                    ),
+                    subtitle,
+                    style: const TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
                   ),
-                  if (risk.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(999)),
-                      child: Text(risk, style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 10, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
                 ],
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Column(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: done ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-                  child: Icon(done ? Icons.check_rounded : Icons.chevron_right_rounded, color: done ? const Color(0xFF16A34A) : const Color(0xFF94A3B8)),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  status,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: done ? const Color(0xFF16A34A) : const Color(0xFFD97706),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 6),
+            const Icon(Icons.arrow_forward_ios_rounded, size: 13, color: AppColors.lightPlaceholder),
+          ],
+        ),
       ),
     );
   }

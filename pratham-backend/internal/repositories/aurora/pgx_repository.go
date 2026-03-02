@@ -473,6 +473,79 @@ RETURNING voice_job_id, COALESCE(patient_id::text, ''), asha_user_id::text, COAL
 	return out, err
 }
 
+func (r *PgxRepository) GetVoiceJobByID(ctx context.Context, voiceJobID string) (models.VoiceJob, error) {
+	var out models.VoiceJob
+	err := r.pool.QueryRow(ctx, `
+SELECT voice_job_id, COALESCE(patient_id::text, ''), asha_user_id::text, COALESCE(encounter_id::text, ''), s3_bucket, s3_key,
+	language_code, context, COALESCE(transcription_job_id, ''), processing_status, COALESCE(error_code, ''), COALESCE(error_message, ''),
+	COALESCE(processing_started_at, NOW()), COALESCE(processing_completed_at, NOW()), created_at, updated_at
+FROM voice_jobs
+WHERE voice_job_id = $1`, voiceJobID).Scan(
+		&out.VoiceJobID,
+		&out.PatientID,
+		&out.ASHAUserID,
+		&out.EncounterID,
+		&out.S3Bucket,
+		&out.S3Key,
+		&out.LanguageCode,
+		&out.Context,
+		&out.TranscriptionJobID,
+		&out.ProcessingStatus,
+		&out.ErrorCode,
+		&out.ErrorMessage,
+		&out.ProcessingStartedAt,
+		&out.ProcessingCompletedAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) ListVoiceJobsByASHA(ctx context.Context, ashaUserID string, limit int) ([]models.VoiceJob, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT voice_job_id, COALESCE(patient_id::text, ''), asha_user_id::text, COALESCE(encounter_id::text, ''), s3_bucket, s3_key,
+	language_code, context, COALESCE(transcription_job_id, ''), processing_status, COALESCE(error_code, ''), COALESCE(error_message, ''),
+	COALESCE(processing_started_at, NOW()), COALESCE(processing_completed_at, NOW()), created_at, updated_at
+FROM voice_jobs
+WHERE asha_user_id::text = $1
+ORDER BY created_at DESC
+LIMIT $2`, ashaUserID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.VoiceJob, 0, limit)
+	for rows.Next() {
+		var item models.VoiceJob
+		if err := rows.Scan(
+			&item.VoiceJobID,
+			&item.PatientID,
+			&item.ASHAUserID,
+			&item.EncounterID,
+			&item.S3Bucket,
+			&item.S3Key,
+			&item.LanguageCode,
+			&item.Context,
+			&item.TranscriptionJobID,
+			&item.ProcessingStatus,
+			&item.ErrorCode,
+			&item.ErrorMessage,
+			&item.ProcessingStartedAt,
+			&item.ProcessingCompletedAt,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *PgxRepository) UpdateVoiceJobStatus(ctx context.Context, voiceJobID, status, transcriptionJobID, errorCode, errorMessage string, completedAt *time.Time) error {
 	_, err := r.pool.Exec(ctx, `
 UPDATE voice_jobs
@@ -582,6 +655,64 @@ RETURNING encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id
 		&out.UpdatedAt,
 	)
 	return out, err
+}
+
+func (r *PgxRepository) ListEncountersByASHA(ctx context.Context, ashaUserID string, limit int) ([]models.EncounterRecord, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
+	COALESCE(source_audio_bucket, ''), COALESCE(source_audio_key, ''), COALESCE(transcription_text, ''), COALESCE(translation_text, ''),
+	extracted_entities::text, clinical_alerts::text, COALESCE(fhir_encounter_id, ''), sync_status::text, COALESCE(idempotency_key, ''),
+	created_at, updated_at
+FROM encounters
+WHERE asha_user_id::text = $1
+ORDER BY created_at DESC
+LIMIT $2`, ashaUserID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.EncounterRecord, 0, limit)
+	for rows.Next() {
+		var item models.EncounterRecord
+		if err := rows.Scan(
+			&item.EncounterID,
+			&item.PatientID,
+			&item.ASHAUserID,
+			&item.ClinicID,
+			&item.VisitType,
+			&item.Status,
+			&item.OccurredAt,
+			&item.SourceAudioBucket,
+			&item.SourceAudioKey,
+			&item.TranscriptionText,
+			&item.TranslationText,
+			&item.ExtractedEntities,
+			&item.ClinicalAlerts,
+			&item.FHIREncounterID,
+			&item.SyncStatus,
+			&item.IdempotencyKey,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *PgxRepository) UpdateEncounterFHIRSync(ctx context.Context, encounterID, fhirEncounterID, syncStatus string) error {
+	_, err := r.pool.Exec(ctx, `
+UPDATE encounters
+SET fhir_encounter_id = NULLIF($2, ''),
+	sync_status = $3::encounter_sync_status,
+	updated_at = NOW()
+WHERE encounter_id = $1`, encounterID, fhirEncounterID, syncStatus)
+	return err
 }
 
 func (r *PgxRepository) CreateEncounterAlerts(ctx context.Context, encounterID string, alerts []models.EncounterAlert) error {

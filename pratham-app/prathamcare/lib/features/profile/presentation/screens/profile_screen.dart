@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/models/user_profile.dart';
 import '../../../../data/repositories/cognito_auth_repository.dart';
 
@@ -53,14 +54,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       backgroundColor: AppColors.lightBackground,
       appBar: AppBar(
         title: const Text('Profile'),
-        actions: [
-          TextButton.icon(
-            onPressed: _logout,
-            icon: const Icon(Icons.logout_rounded, size: 18),
-            label: const Text('Logout'),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: SafeArea(
         child: Center(
@@ -84,6 +77,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _InfoCard(label: 'Phone', value: _profile!.phone.isEmpty ? '-' : _profile!.phone),
                   _InfoCard(label: 'Role', value: _profile!.role),
                   _InfoCard(label: 'User ID', value: _profile!.userId.isEmpty ? '-' : _profile!.userId),
+                  const SizedBox(height: 12),
+                  AppPillButton(
+                    onPressed: _logout,
+                    icon: Icons.logout_rounded,
+                    label: 'Logout',
+                    variant: AppPillButtonVariant.dark,
+                  ),
                 ],
               ],
             ),

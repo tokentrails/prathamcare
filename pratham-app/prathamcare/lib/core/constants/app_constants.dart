@@ -3,5 +3,5 @@ class AppConstants {
 
   static const String appName = 'PrathamCare';
   static const String apiBaseUrl =
-      String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3000');
+      String.fromEnvironment('API_BASE_URL', defaultValue: 'https://kinqjy55xg.execute-api.ap-south-1.amazonaws.com/dev');
 }

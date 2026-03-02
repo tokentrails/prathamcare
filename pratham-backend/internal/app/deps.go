@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/prathamcare/backend/internal/config"
 	repoaurora "github.com/prathamcare/backend/internal/repositories/aurora"
@@ -24,14 +26,18 @@ func NewDependencies(ctx context.Context, cfg config.Config) (*Dependencies, err
 	deps := &Dependencies{}
 
 	if cfg.AuroraDSN != "" {
-		auroraRepo, err := repoaurora.NewPgxRepository(ctx, cfg.AuroraDSN)
+		auroraCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		auroraRepo, err := repoaurora.NewPgxRepository(auroraCtx, cfg.AuroraDSN)
+		cancel()
 		if err != nil {
-			return nil, fmt.Errorf("aurora repo: %w", err)
+			log.Printf("warning: aurora repo init failed; continuing without aurora: %v", err)
+		} else {
+			deps.Aurora = auroraRepo
 		}
-		deps.Aurora = auroraRepo
 	}
 
-	dynamoRepo, err := repodynamo.NewDynamoRepository(ctx, repodynamo.Config{
+	dynamoCtx, cancelDynamo := context.WithTimeout(ctx, 4*time.Second)
+	dynamoRepo, err := repodynamo.NewDynamoRepository(dynamoCtx, repodynamo.Config{
 		Region:         cfg.AWSRegion,
 		TableSessions:  cfg.DynamoTableSessions,
 		TableOfflineQ:  cfg.DynamoTableOfflineQ,
@@ -40,33 +46,47 @@ func NewDependencies(ctx context.Context, cfg config.Config) (*Dependencies, err
 		SchedulePKName: cfg.DynamoSchedulePKName,
 		ScheduleSKName: cfg.DynamoScheduleSKName,
 	})
+	cancelDynamo()
 	if err != nil {
-		return nil, fmt.Errorf("dynamo repo: %w", err)
+		log.Printf("warning: dynamo repo init failed; continuing without dynamo: %v", err)
+	} else {
+		deps.Dynamo = dynamoRepo
 	}
-	deps.Dynamo = dynamoRepo
 
-	storageRepo, err := repostorage.NewS3Repository(ctx, cfg.AWSRegion)
+	storageCtx, cancelStorage := context.WithTimeout(ctx, 4*time.Second)
+	storageRepo, err := repostorage.NewS3Repository(storageCtx, cfg.AWSRegion)
+	cancelStorage()
 	if err != nil {
-		return nil, fmt.Errorf("s3 repo: %w", err)
+		log.Printf("warning: s3 repo init failed; continuing without storage: %v", err)
+	} else {
+		deps.Storage = storageRepo
 	}
-	deps.Storage = storageRepo
 
 	if cfg.HealthLakeEndpoint != "" {
-		hlRepo, err := repohealthlake.NewHTTPRepository(ctx, cfg.AWSRegion, cfg.HealthLakeEndpoint)
+		hlCtx, cancelHealthLake := context.WithTimeout(ctx, 4*time.Second)
+		hlRepo, err := repohealthlake.NewHTTPRepository(hlCtx, cfg.AWSRegion, cfg.HealthLakeEndpoint)
+		cancelHealthLake()
 		if err != nil {
-			return nil, fmt.Errorf("healthlake repo: %w", err)
+			log.Printf("warning: healthlake repo init failed; continuing without healthlake: %v", err)
+		} else {
+			deps.HealthLake = hlRepo
 		}
-		deps.HealthLake = hlRepo
 	}
 
 	if cfg.OpenSearchEndpoint != "" {
-		searchRepo, err := reposearch.NewOpenSearchRepository(ctx, cfg.AWSRegion, cfg.OpenSearchEndpoint, "prathamcare-vectors")
+		searchCtx, cancelSearch := context.WithTimeout(ctx, 4*time.Second)
+		searchRepo, err := reposearch.NewOpenSearchRepository(searchCtx, cfg.AWSRegion, cfg.OpenSearchEndpoint, "prathamcare-vectors")
+		cancelSearch()
 		if err != nil {
-			return nil, fmt.Errorf("opensearch repo: %w", err)
+			log.Printf("warning: opensearch repo init failed; continuing without opensearch: %v", err)
+		} else {
+			deps.Search = searchRepo
 		}
-		deps.Search = searchRepo
 	}
 
+	if deps.Aurora == nil && deps.Dynamo == nil && deps.Storage == nil && deps.HealthLake == nil && deps.Search == nil {
+		return deps, fmt.Errorf("all dependencies failed to initialize")
+	}
 	return deps, nil
 }
 

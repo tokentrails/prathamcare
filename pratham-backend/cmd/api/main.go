@@ -12,18 +12,22 @@ import (
 )
 
 func main() {
+	log.Printf("startup: loading config")
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	log.Printf("startup: initializing dependencies")
 	deps, err := app.NewDependencies(context.Background(), cfg)
 	if err != nil {
 		log.Fatalf("init dependencies: %v", err)
 	}
 	defer deps.Close()
 
+	log.Printf("startup: initializing handler")
 	h := api.NewHandler(cfg, deps)
-	lambda.Start(func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	log.Printf("startup: lambda ready")
+	lambda.Start(func(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
 		return h.Handle(ctx, req)
 	})
 }

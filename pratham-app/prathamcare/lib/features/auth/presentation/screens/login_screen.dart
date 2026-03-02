@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/repositories/cognito_auth_repository.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -130,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   const Spacer(),
                                   TextButton(
-                                    onPressed: () {},
+                                    onPressed: _handleForgotPassword,
                                     style: TextButton.styleFrom(
                                       foregroundColor: AppColors.accent,
                                       padding: EdgeInsets.zero,
@@ -355,36 +356,12 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildSignInButton() {
     return SizedBox(
       width: double.infinity,
-      height: 54,
-      child: ElevatedButton(
+      height: 56,
+      child: AppPillButton(
         onPressed: isSigningIn ? null : _handleCognitoSignIn,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shadowColor: AppColors.primary.withValues(alpha: 0.2),
-          shape: const StadiumBorder(),
-        ),
-        child: isSigningIn
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                ),
-              )
-            : const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Sign In',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  SizedBox(width: 8),
-                  Icon(Icons.arrow_forward_rounded, size: 18),
-                ],
-              ),
+        icon: Icons.arrow_upward_rounded,
+        label: isSigningIn ? 'Signing In...' : 'Sign In',
+        variant: AppPillButtonVariant.primary,
       ),
     );
   }
@@ -455,6 +432,59 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() => isSigningIn = false);
       }
+    }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final username = emailController.text.trim();
+    if (username.isEmpty) {
+      setState(() {
+        signInError = 'Enter your email first, then tap Forgot Password.';
+      });
+      return;
+    }
+
+    try {
+      final start = await _authRepository.startForgotPassword(username: username);
+      if (start.isComplete) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password reset is already complete. Please sign in.')),
+        );
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+      final reset = await _collectForgotPasswordInput(start);
+      if (reset == null) {
+        return;
+      }
+
+      await _authRepository.confirmForgotPassword(
+        username: username,
+        confirmationCode: reset.code,
+        newPassword: reset.newPassword,
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset successful. Please sign in with new password.')),
+      );
+      setState(() {
+        signInError = null;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        signInError = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -548,6 +578,108 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     fullNameController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
+    return result;
+  }
+
+  Future<_ForgotPasswordInput?> _collectForgotPasswordInput(PasswordResetStartOutcome start) async {
+    final codeController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    String? validationError;
+
+    final result = await showDialog<_ForgotPasswordInput>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Reset Password'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      start.destination.isNotEmpty
+                          ? 'Verification code sent via ${start.deliveryMedium} to ${start.destination}'
+                          : 'Enter the verification code and your new password.',
+                      style: const TextStyle(fontSize: 13, color: AppColors.lightTextMuted),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: codeController,
+                      decoration: const InputDecoration(
+                        labelText: 'Verification Code',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: newPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'New Password',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: confirmPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm New Password',
+                      ),
+                    ),
+                    if (validationError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        validationError!,
+                        style: const TextStyle(color: AppColors.lightError, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final code = codeController.text.trim();
+                    final pass = newPasswordController.text.trim();
+                    final confirm = confirmPasswordController.text.trim();
+
+                    if (code.isEmpty) {
+                      setDialogState(() => validationError = 'Verification code is required.');
+                      return;
+                    }
+                    if (pass.length < 8) {
+                      setDialogState(() => validationError = 'Password must be at least 8 characters.');
+                      return;
+                    }
+                    if (pass != confirm) {
+                      setDialogState(() => validationError = 'Passwords do not match.');
+                      return;
+                    }
+
+                    Navigator.of(context).pop(
+                      _ForgotPasswordInput(code: code, newPassword: pass),
+                    );
+                  },
+                  child: const Text('Reset'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    codeController.dispose();
     newPasswordController.dispose();
     confirmPasswordController.dispose();
     return result;
@@ -710,5 +842,15 @@ class _NewPasswordChallengeInput {
   });
 
   final String fullName;
+  final String newPassword;
+}
+
+class _ForgotPasswordInput {
+  const _ForgotPasswordInput({
+    required this.code,
+    required this.newPassword,
+  });
+
+  final String code;
   final String newPassword;
 }

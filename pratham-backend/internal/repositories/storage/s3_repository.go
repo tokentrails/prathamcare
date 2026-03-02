@@ -43,17 +43,9 @@ func (r *S3Repository) GenerateDocumentUploadURL(ctx context.Context, doc models
 }
 
 func (r *S3Repository) GenerateVoiceUploadURL(ctx context.Context, voice models.VoiceRecording, expiresIn time.Duration) (string, error) {
-	contentType := "audio/mpeg"
 	out, err := r.presignClient.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:      &voice.S3Bucket,
-		Key:         &voice.S3Key,
-		ContentType: &contentType,
-		Metadata: map[string]string{
-			"recording_id": voice.RecordingID,
-			"recorded_by": voice.RecordedByUserID,
-			"language": voice.LanguageCode,
-		},
-		ServerSideEncryption: types.ServerSideEncryptionAwsKms,
+		Bucket: &voice.S3Bucket,
+		Key:    &voice.S3Key,
 	}, s3.WithPresignExpires(expiresIn))
 	if err != nil {
 		return "", err

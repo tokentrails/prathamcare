@@ -74,6 +74,7 @@ type Patient struct {
 	Gender             string    `json:"gender,omitempty"`
 	DateOfBirth        string    `json:"date_of_birth,omitempty"`
 	Phone              string    `json:"phone,omitempty"`
+	PreferredLanguage  string    `json:"preferred_language,omitempty"`
 	PrimaryClinicID    string    `json:"primary_clinic_id,omitempty"`
 	SourceSystem       string    `json:"source_system"`
 	ReadOnly           bool      `json:"read_only"`

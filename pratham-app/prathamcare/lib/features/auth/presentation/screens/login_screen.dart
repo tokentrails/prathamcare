@@ -13,6 +13,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final CognitoAuthRepository _authRepository = CognitoAuthRepository.instance;
+  static const Duration _authTimeout = Duration(seconds: 20);
 
   int selectedRole = 0;
   bool rememberMe = false;
@@ -383,7 +384,13 @@ class _LoginScreenState extends State<LoginScreen> {
         await _authRepository.signOut();
       }
 
-      final signInOutcome = await _authRepository.signIn(username: username, password: password);
+      final signInOutcome = await _authRepository
+          .signIn(username: username, password: password)
+          .timeout(_authTimeout, onTimeout: () {
+        throw Exception(
+          'Sign-in timed out. Check internet/Cognito config and try again.',
+        );
+      });
       if (!signInOutcome.isSignedIn) {
         if (signInOutcome.requiresNewPassword) {
           final challengeInput = await _collectNewPasswordChallengeInput();
@@ -391,10 +398,16 @@ class _LoginScreenState extends State<LoginScreen> {
             throw Exception('Sign-in cancelled. New password is required.');
           }
 
-          final confirmOutcome = await _authRepository.confirmSignIn(
-            confirmationValue: challengeInput.newPassword,
-            fullName: challengeInput.fullName,
-          );
+          final confirmOutcome = await _authRepository
+              .confirmSignIn(
+                confirmationValue: challengeInput.newPassword,
+                fullName: challengeInput.fullName,
+              )
+              .timeout(_authTimeout, onTimeout: () {
+            throw Exception(
+              'Password challenge timed out. Please retry.',
+            );
+          });
           if (!confirmOutcome.isSignedIn) {
             throw Exception(
               'Challenge step pending: ${confirmOutcome.nextStep}. Please complete the required step in Cognito.',
@@ -406,7 +419,9 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
 
-      final tokenRole = await _authRepository.getRoleFromIdToken();
+      final tokenRole = await _authRepository
+          .getRoleFromIdToken()
+          .timeout(_authTimeout, onTimeout: () => null);
       _syncSelectedRoleFromToken(tokenRole);
 
       if (!mounted) {
@@ -445,7 +460,13 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     try {
-      final start = await _authRepository.startForgotPassword(username: username);
+      final start = await _authRepository
+          .startForgotPassword(username: username)
+          .timeout(_authTimeout, onTimeout: () {
+        throw Exception(
+          'Reset password request timed out. Please try again.',
+        );
+      });
       if (start.isComplete) {
         if (!mounted) {
           return;
@@ -464,11 +485,17 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      await _authRepository.confirmForgotPassword(
-        username: username,
-        confirmationCode: reset.code,
-        newPassword: reset.newPassword,
-      );
+      await _authRepository
+          .confirmForgotPassword(
+            username: username,
+            confirmationCode: reset.code,
+            newPassword: reset.newPassword,
+          )
+          .timeout(_authTimeout, onTimeout: () {
+        throw Exception(
+          'Password reset confirmation timed out. Please retry.',
+        );
+      });
       if (!mounted) {
         return;
       }

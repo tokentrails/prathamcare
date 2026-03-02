@@ -1,0 +1,24 @@
+version: 1
+applications:
+  - appRoot: pratham-app/prathamcare
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - git clone https://github.com/flutter/flutter.git -b stable --depth 1
+            - export PATH="$PATH:$PWD/flutter/bin"
+            - flutter --version
+            - flutter config --enable-web
+            - flutter pub get
+        build:
+          commands:
+            - flutter build web --release --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=COGNITO_REGION=$COGNITO_REGION --dart-define=COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID --dart-define=COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID
+      artifacts:
+        baseDirectory: build/web
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - /root/.pub-cache/**/*
+          - flutter/bin/cache/**/*
+

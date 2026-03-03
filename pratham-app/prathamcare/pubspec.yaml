@@ -38,6 +38,7 @@ dependencies:
   file_picker: ^8.1.2
   record: ^5.2.0
   cross_file: ^0.3.4+2
+  path_provider: ^2.1.4
   amplify_flutter: ^2.5.0
   amplify_auth_cognito: ^2.5.0
 

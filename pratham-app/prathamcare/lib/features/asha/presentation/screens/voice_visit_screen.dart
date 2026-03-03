@@ -3,7 +3,9 @@ import 'dart:async';
 
 import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -32,6 +34,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   String? _objectKey;
   String? _voiceJobId;
   String? _transcriptionJobId;
+  String? _recordingPath;
+  String _recordingExtension = 'wav';
   Map<String, dynamic>? _transcribeResponse;
   String? _processingStatus;
   String? _error;
@@ -62,7 +66,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       type: FileType.custom,
       allowMultiple: false,
       withData: true,
-      allowedExtensions: const ['wav', 'mp3'],
+      allowedExtensions: const ['wav', 'mp3', 'm4a'],
     );
     if (picked == null || picked.files.isEmpty) {
       return;
@@ -98,14 +102,18 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     if (_recording) {
       try {
         final path = await _audioRecorder.stop();
-        if (path == null || path.isEmpty) {
+        final resolvedPath = (path == null || path.isEmpty) ? _recordingPath : path;
+        _recordingPath = null;
+        if (resolvedPath == null || resolvedPath.isEmpty) {
           setState(() {
             _error = 'Recording stop failed.';
             _recording = false;
           });
           return;
         }
-        final bytes = await XFile(path).readAsBytes();
+        // Give recorder a moment to flush buffers before reading.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        final bytes = await XFile(resolvedPath).readAsBytes();
         if (bytes.isEmpty) {
           setState(() {
             _error = 'Recorded file is empty.';
@@ -121,9 +129,9 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
           _transcriptionJobId = null;
           _processingStatus = null;
           _selectedAudio = PlatformFile(
-            name: 'recorded_visit.wav',
+            name: 'recorded_visit.$_recordingExtension',
             size: bytes.length,
-            path: path,
+            path: resolvedPath,
           );
           _selectedAudioBytes = bytes;
         });
@@ -144,12 +152,22 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         });
         return;
       }
+      final useWebSafeEncoder = kIsWeb;
+      final encoder = useWebSafeEncoder ? AudioEncoder.aacLc : AudioEncoder.wav;
+      final extension = useWebSafeEncoder ? 'm4a' : 'wav';
+      final recordingPath = await _buildRecordingPath(extension);
       await _audioRecorder.start(
-        const RecordConfig(encoder: AudioEncoder.wav),
-        path: 'recorded_visit.wav',
+        RecordConfig(
+          encoder: encoder,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: recordingPath,
       );
       setState(() {
         _recording = true;
+        _recordingPath = recordingPath;
+        _recordingExtension = extension;
         _error = null;
       });
     } catch (e) {
@@ -158,6 +176,16 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         _error = 'Failed to start recording: $e';
       });
     }
+  }
+
+  Future<String> _buildRecordingPath(String extension) async {
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    if (kIsWeb) {
+      return 'recorded_visit_$stamp.$extension';
+    }
+    final dir = await getTemporaryDirectory();
+    final base = dir.path.replaceAll('\\', '/');
+    return '$base/recorded_visit_$stamp.$extension';
   }
 
   Future<void> _runAiExtract() async {
@@ -192,7 +220,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         fileSizeBytes: _selectedAudioBytes!.lengthInBytes,
         context: 'asha_home_visit',
         patientId: patientId,
-        language: 'hi-IN',
+        language: '',
       );
 
       final uploadUrl = '${presign['upload_url'] ?? ''}';
@@ -209,7 +237,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
 
       final transcribed = await _apiClient.transcribeVoice(
         objectKey: _objectKey!,
-        language: 'hi-IN',
+        language: '',
         context: 'asha_home_visit',
         patientId: patientId,
       );
@@ -356,6 +384,9 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     final lower = fileName.toLowerCase();
     if (lower.endsWith('.mp3')) {
       return 'audio/mpeg';
+    }
+    if (lower.endsWith('.m4a') || lower.endsWith('.mp4')) {
+      return 'audio/mp4';
     }
     return 'audio/wav';
   }
@@ -593,7 +624,28 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   Widget _buildResultCard(Map<String, dynamic> data) {
     final extracted = (data['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final vitals = (extracted['vitals'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final alerts = (data['clinical_alerts'] as List?) ?? const [];
+    final alerts = ((data['clinical_alerts'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
+    final symptoms = ((extracted['symptoms'] as List?) ?? const []).map((e) => '$e').toList();
+    final symptomDetails = ((extracted['symptom_details'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
+    final nextSteps = ((extracted['asha_next_steps'] as List?) ?? const []).map((e) => '$e').toList();
+    final followUps = ((extracted['follow_up_recommendations'] as List?) ?? const []).map((e) => '$e').toList();
+    final redFlags = ((extracted['red_flags'] as List?) ?? const []).map((e) => '$e').toList();
+    final meds = ((extracted['medications_mentioned'] as List?) ?? const []).map((e) => '$e').toList();
+    final pregnancyRaw = (extracted['pregnancy_context'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    final immunizationRaw =
+        (extracted['immunization_context'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    final pregnancy = _meaningfulMap(pregnancyRaw);
+    final immunization = _meaningfulMap(immunizationRaw);
+    final summary = '${extracted['clinical_summary'] ?? ''}'.trim();
+    final referralUrgency = '${extracted['referral_urgency'] ?? 'routine'}'.trim();
+    final translation = '${data['translation'] ?? ''}'.trim();
+    final transcription = '${data['transcription'] ?? ''}'.trim();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -609,37 +661,130 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         children: [
           const Text('AI Extraction', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 10),
-          _kv('Patient', '${extracted['patient_name'] ?? '-'}'),
-          _kv('Visit Type', '${extracted['visit_type'] ?? '-'}'),
-          _kv('Transcription', '${data['transcription'] ?? '-'}'),
-          const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: vitals.entries
-                .map(
-                  (e) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0x1A0F756D),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text('${e.key}: ${e.value}'),
-                  ),
-                )
-                .toList(),
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _topFieldCard('Patient', '${extracted['patient_name'] ?? '-'}'),
+              _topFieldCard('Visit Type', '${extracted['visit_type'] ?? '-'}'),
+              _topFieldCard('Referral', referralUrgency.isEmpty ? '-' : referralUrgency),
+            ],
           ),
-          if (alerts.isNotEmpty) ...[
+          if (summary.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _sectionTitle('Clinical Summary'),
+            _bodyText(summary),
+          ],
+          const SizedBox(height: 10),
+          _sectionTitle('Conversation'),
+          _textBlock('Transcription', transcription),
+          const SizedBox(height: 8),
+          _textBlock('Translation (English)', translation),
+          const SizedBox(height: 8),
+          if (symptoms.isNotEmpty) ...[
+            _sectionTitle('Symptoms'),
+            Wrap(spacing: 8, runSpacing: 8, children: symptoms.map(_chip).toList()),
+            const SizedBox(height: 10),
+          ],
+          if (symptomDetails.isNotEmpty) ...[
+            _sectionTitle('Symptom Details'),
+            ...symptomDetails.map((item) => _bullet('${item['symptom'] ?? '-'}: ${item['description'] ?? '-'}')),
+            const SizedBox(height: 10),
+          ],
+          if (vitals.isNotEmpty) ...[
+            _sectionTitle('Vitals'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: vitals.entries.map((e) => _chip('${e.key}: ${e.value}')).toList(),
+            ),
             const SizedBox(height: 12),
+          ],
+          if (nextSteps.isNotEmpty) ...[
+            _sectionTitle('ASHA Next Steps'),
+            ...nextSteps.map(_bullet),
+            const SizedBox(height: 10),
+          ],
+          if (followUps.isNotEmpty) ...[
+            _sectionTitle('Follow-up Recommendations'),
+            ...followUps.map(_bullet),
+            const SizedBox(height: 10),
+          ],
+          if (redFlags.isNotEmpty) ...[
+            _sectionTitle('Red Flags'),
+            ...redFlags.map(_bullet),
+            const SizedBox(height: 10),
+          ],
+          if (meds.isNotEmpty) ...[
+            _sectionTitle('Medications Mentioned'),
+            Wrap(spacing: 8, runSpacing: 8, children: meds.map(_chip).toList()),
+            const SizedBox(height: 10),
+          ],
+          if (pregnancy.isNotEmpty) ...[
+            _sectionTitle('Pregnancy Context'),
+            ...pregnancy.entries.map((e) => _summaryRow(e.key, '${e.value}')),
+            const SizedBox(height: 10),
+          ],
+          if (immunization.isNotEmpty) ...[
+            _sectionTitle('Immunization Context'),
+            ...immunization.entries.map((e) => _summaryRow(e.key, '${e.value}')),
+            const SizedBox(height: 10),
+          ],
+          if (alerts.isNotEmpty) ...[
+            _sectionTitle('Clinical Alerts'),
             ...alerts.map(
               (a) => Container(
                 margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.lightErrorSoft,
+                  color: _severitySurfaceColor('${a['severity'] ?? 'unknown'}'),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _severityBorderColor('${a['severity'] ?? 'unknown'}')),
                 ),
-                child: Text('${(a as Map)['message'] ?? ''}'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _severityChip('${a['severity'] ?? 'unknown'}'),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${a['message'] ?? ''}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.lightTextSecondary,
+                      ),
+                    ),
+                    if ('${a['recommended_action'] ?? ''}'.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Recommended Action',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.lightTextMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${a['recommended_action']}',
+                              style: const TextStyle(color: AppColors.lightTextSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -648,18 +793,236 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     );
   }
 
-  Widget _kv(String label, String value) {
+  Widget _sectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: AppColors.lightTextSecondary, height: 1.45),
-          children: [
-            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.black87)),
-            TextSpan(text: value),
-          ],
+      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+    );
+  }
+
+  Widget _textBlock(String title, String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(
+            text.isEmpty ? '-' : text,
+            style: const TextStyle(color: AppColors.lightTextSecondary, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.black87),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              style: const TextStyle(color: AppColors.lightTextSecondary, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _topFieldCard(String label, String value) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.lightTextMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value.isEmpty ? '-' : value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.lightTextSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x1A0F756D),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(text),
+    );
+  }
+
+  Widget _severityChip(String severity) {
+    final label = severity.trim().isEmpty ? 'unknown' : severity.trim().toLowerCase();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _severityChipBackground(label),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _titleCase(label),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: _severityChipTextColor(label),
         ),
       ),
     );
+  }
+
+  Color _severityChipBackground(String severity) {
+    switch (severity) {
+      case 'low':
+        return AppColors.lightSuccessSoft;
+      case 'moderate':
+        return AppColors.lightWarningSoft;
+      case 'high':
+      case 'critical':
+        return AppColors.lightErrorSoft;
+      default:
+        return const Color(0xFFE2E8F0);
+    }
+  }
+
+  Color _severityChipTextColor(String severity) {
+    switch (severity) {
+      case 'low':
+        return AppColors.lightSuccess;
+      case 'moderate':
+        return const Color(0xFFB45309);
+      case 'high':
+      case 'critical':
+        return AppColors.lightError;
+      default:
+        return AppColors.lightTextMuted;
+    }
+  }
+
+  Color _severitySurfaceColor(String severity) {
+    switch (severity.trim().toLowerCase()) {
+      case 'low':
+        return const Color(0xFFF3FBF6);
+      case 'moderate':
+        return const Color(0xFFFFFAF0);
+      case 'high':
+      case 'critical':
+        return AppColors.lightErrorSoft;
+      default:
+        return const Color(0xFFF8FAFC);
+    }
+  }
+
+  Color _severityBorderColor(String severity) {
+    switch (severity.trim().toLowerCase()) {
+      case 'low':
+        return const Color(0xFF86EFAC);
+      case 'moderate':
+        return const Color(0xFFFCD34D);
+      case 'high':
+      case 'critical':
+        return const Color(0xFFFCA5A5);
+      default:
+        return const Color(0xFFE2E8F0);
+    }
+  }
+
+  String _titleCase(String input) {
+    if (input.isEmpty) {
+      return input;
+    }
+    return '${input[0].toUpperCase()}${input.substring(1)}';
+  }
+
+  Widget _bullet(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Icon(Icons.circle, size: 7, color: AppColors.primary),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: const TextStyle(color: AppColors.lightTextSecondary)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bodyText(String text) {
+    return Text(
+      text.isEmpty ? '-' : text,
+      style: const TextStyle(color: AppColors.lightTextSecondary, height: 1.4),
+    );
+  }
+
+  Map<String, dynamic> _meaningfulMap(Map<String, dynamic> input) {
+    final out = <String, dynamic>{};
+    input.forEach((key, value) {
+      if (_isMeaningful(value)) {
+        out[key] = value;
+      }
+    });
+    return out;
+  }
+
+  bool _isMeaningful(dynamic value) {
+    if (value == null) {
+      return false;
+    }
+    if (value is String) {
+      return value.trim().isNotEmpty && value.trim().toLowerCase() != 'null';
+    }
+    if (value is List) {
+      return value.isNotEmpty;
+    }
+    if (value is Map) {
+      return value.isNotEmpty;
+    }
+    return true;
   }
 }

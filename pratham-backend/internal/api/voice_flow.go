@@ -14,6 +14,7 @@ import (
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	bedrocktypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	cm "github.com/aws/aws-sdk-go-v2/service/comprehendmedical"
 	transcribe "github.com/aws/aws-sdk-go-v2/service/transcribe"
 	transcribetypes "github.com/aws/aws-sdk-go-v2/service/transcribe/types"
@@ -122,7 +123,7 @@ func (h *Handler) handleVoiceTranscribe(ctx context.Context, req events.APIGatew
 		ASHAUserID:          ashaUserID,
 		S3Bucket:            h.cfg.S3VoiceBucket,
 		S3Key:               in.ObjectKey,
-		LanguageCode:        defaultString(in.Language, "hi-IN"),
+		LanguageCode:        defaultString(in.Language, "en-IN"),
 		Context:             defaultString(in.Context, "asha_home_visit"),
 		TranscriptionJobID:  transcriptionJobID,
 		ProcessingStatus:    "transcribing",
@@ -206,6 +207,7 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 	if err != nil {
 		return h.error(http.StatusBadGateway, "SERVICE_UNAVAILABLE", "failed to read transcript: "+err.Error())
 	}
+	h.logAIDebug("transcribe_raw_text", transcriptionText)
 	if strings.TrimSpace(transcriptionText) == "" {
 		now := time.Now().UTC()
 		_ = h.deps.Aurora.UpdateVoiceJobStatus(ctx, voiceJobID, "failed", voiceJob.TranscriptionJobID, "EMPTY_TRANSCRIPT", "empty transcript returned", &now)
@@ -221,6 +223,7 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 	translation := transcriptionText
 	extracted, alerts, bedrockErr := h.runBedrockExtraction(ctx, transcriptionText)
 	if bedrockErr != nil {
+		log.Printf("voice_transcribe_bedrock_fallback voice_job_id=%s transcription_job_id=%s error=%v", voiceJobID, voiceJob.TranscriptionJobID, bedrockErr)
 		extractedFallback, alertsFallback := extractClinicalSignals(transcriptionText)
 		extracted = map[string]any{
 			"patient_name": extractedFallback.PatientName,
@@ -229,7 +232,7 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 			"vitals":       extractedFallback.Vitals,
 		}
 		alerts = alertsFallback
-		warnings = append(warnings, "Bedrock extraction unavailable; fallback extraction used")
+		warnings = append(warnings, "Bedrock extraction unavailable; fallback extraction used: "+bedrockErr.Error())
 	}
 	if v, ok := extracted["translation"].(string); ok && strings.TrimSpace(v) != "" {
 		translation = v
@@ -288,6 +291,7 @@ func (h *Handler) handleVoiceTranscribeJobStatus(ctx context.Context, req events
 	if err != nil {
 		return h.error(http.StatusBadGateway, "SERVICE_UNAVAILABLE", "failed to read transcript: "+err.Error())
 	}
+	h.logAIDebug("transcribe_raw_text", transcriptionText)
 	if strings.TrimSpace(transcriptionText) == "" {
 		return h.json(http.StatusOK, map[string]any{
 			"voice_job_id":      "",
@@ -301,6 +305,7 @@ func (h *Handler) handleVoiceTranscribeJobStatus(ctx context.Context, req events
 	translation := transcriptionText
 	extracted, alerts, bedrockErr := h.runBedrockExtraction(ctx, transcriptionText)
 	if bedrockErr != nil {
+		log.Printf("voice_transcribe_bedrock_fallback transcription_job_id=%s error=%v", transcriptionJobID, bedrockErr)
 		extractedFallback, alertsFallback := extractClinicalSignals(transcriptionText)
 		extracted = map[string]any{
 			"patient_name": extractedFallback.PatientName,
@@ -309,7 +314,7 @@ func (h *Handler) handleVoiceTranscribeJobStatus(ctx context.Context, req events
 			"vitals":       extractedFallback.Vitals,
 		}
 		alerts = alertsFallback
-		warnings = append(warnings, "Bedrock extraction unavailable; fallback extraction used")
+		warnings = append(warnings, "Bedrock extraction unavailable; fallback extraction used: "+bedrockErr.Error())
 	}
 	if v, ok := extracted["translation"].(string); ok && strings.TrimSpace(v) != "" {
 		translation = v
@@ -574,7 +579,7 @@ func (h *Handler) enqueueVoiceJobFallback(ctx context.Context, userID, patientID
 	payload := map[string]any{
 		"transcription_job": transcriptionJobID,
 		"object_key":        objectKey,
-		"language":          defaultString(language, "hi-IN"),
+		"language":          defaultString(language, "en-IN"),
 		"context":           defaultString(visitContext, "asha_home_visit"),
 	}
 	payloadJSON, _ := json.Marshal(payload)
@@ -1107,50 +1112,50 @@ func (h *Handler) runBedrockExtraction(ctx context.Context, transcript string) (
 
 	prompt := "You are a clinical AI for ASHA home visits. " +
 		"From transcript, return strict JSON object with keys: translation, extracted_entities, clinical_alerts. " +
-		"`translation` must be English. `extracted_entities` must include patient_name, visit_type, symptoms (array), vitals (object), and should also include if present: " +
-		"age_years, chief_complaint, duration_days, symptom_duration_text, body_site, suspected_conditions (array), risk_factors (array), follow_up_recommendations (array). " +
-		"`clinical_alerts` must be array of objects with severity, code, message. " +
+		"`translation` must be English. `extracted_entities` must include patient_name, visit_type, symptoms (array), symptom_details (array of objects), vitals (object), medications_mentioned (array), " +
+		"clinical_summary (string), referral_urgency (immediate|within_24h|routine), asha_next_steps (array), red_flags (array), and should also include if present: " +
+		"age_years, chief_complaint, duration_days, symptom_duration_text, body_site, suspected_conditions (array), risk_factors (array), follow_up_recommendations (array), " +
+		"pregnancy_context (object with is_pregnant, gravida, parity, gestational_age_weeks, anc_visits_completed, high_risk_pregnancy, expected_delivery_date), " +
+		"immunization_context (object with due_vaccines array, missed_vaccines array, last_vaccine_date, child_age_months). " +
+		"`translation` must ALWAYS be in English regardless of source language and code-mixing. " +
+		"All string values inside `extracted_entities` must be in English. " +
+		"Do not rewrite, normalize, or translate the original transcript text itself; only produce the structured JSON output. " +
+		"`clinical_alerts` must be array of objects with severity, code, message, recommended_action. " +
 		"Do not add markdown.\nTranscript:\n" + transcript
+	h.logAIDebug("bedrock_prompt", prompt)
 
-	bodyObj := map[string]any{
-		"anthropic_version": "bedrock-2023-05-31",
-		"max_tokens":        800,
-		"temperature":       0.0,
-		"messages": []map[string]any{
+	maxTokens := int32(4000)
+	temperature := float32(0.0)
+	out, err := client.Converse(ctx, &bedrockruntime.ConverseInput{
+		ModelId: &h.cfg.BedrockModelID,
+		Messages: []bedrocktypes.Message{
 			{
-				"role": "user",
-				"content": []map[string]any{
-					{"type": "text", "text": prompt},
+				Role: bedrocktypes.ConversationRoleUser,
+				Content: []bedrocktypes.ContentBlock{
+					&bedrocktypes.ContentBlockMemberText{Value: prompt},
 				},
 			},
 		},
-	}
-	body, _ := json.Marshal(bodyObj)
-
-	out, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
-		ModelId:     &h.cfg.BedrockModelID,
-		ContentType: stringPtr("application/json"),
-		Accept:      stringPtr("application/json"),
-		Body:        body,
+		InferenceConfig: &bedrocktypes.InferenceConfiguration{
+			MaxTokens:  &maxTokens,
+			Temperature: &temperature,
+		},
 	})
 	if err != nil {
 		return nil, nil, err
 	}
-
-	var parsed struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
+	if raw, marshalErr := json.Marshal(out); marshalErr == nil {
+		h.logAIDebug("bedrock_raw_response", string(raw))
+	} else {
+		h.logAIDebug("bedrock_raw_response", fmt.Sprintf("%+v", out))
 	}
-	if err := json.Unmarshal(out.Body, &parsed); err != nil {
+
+	responseText, err := extractTextFromConverseOutput(out)
+	if err != nil {
 		return nil, nil, err
 	}
-	if len(parsed.Content) == 0 {
-		return nil, nil, fmt.Errorf("bedrock returned empty content")
-	}
 
-	raw := strings.TrimSpace(parsed.Content[0].Text)
+	raw := strings.TrimSpace(responseText)
 	raw = strings.TrimPrefix(raw, "```json")
 	raw = strings.TrimPrefix(raw, "```")
 	raw = strings.TrimSuffix(raw, "```")
@@ -1162,13 +1167,69 @@ func (h *Handler) runBedrockExtraction(ctx context.Context, transcript string) (
 		ClinicalAlerts    []map[string]any `json:"clinical_alerts"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return nil, nil, err
+		jsonOnly := extractJSONObject(raw)
+		if jsonOnly == "" {
+			return nil, nil, err
+		}
+		if err2 := json.Unmarshal([]byte(jsonOnly), &payload); err2 != nil {
+			return nil, nil, err2
+		}
 	}
 	if payload.ExtractedEntities == nil {
 		payload.ExtractedEntities = map[string]any{}
 	}
 	payload.ExtractedEntities["translation"] = payload.Translation
 	return payload.ExtractedEntities, payload.ClinicalAlerts, nil
+}
+
+func extractTextFromConverseOutput(out *bedrockruntime.ConverseOutput) (string, error) {
+	if out == nil || out.Output == nil {
+		return "", fmt.Errorf("bedrock returned empty output")
+	}
+	msgOut, ok := out.Output.(*bedrocktypes.ConverseOutputMemberMessage)
+	if !ok {
+		return "", fmt.Errorf("bedrock returned unsupported output type")
+	}
+	if len(msgOut.Value.Content) == 0 {
+		return "", fmt.Errorf("bedrock returned empty content")
+	}
+
+	var sb strings.Builder
+	for _, block := range msgOut.Value.Content {
+		if textBlock, ok := block.(*bedrocktypes.ContentBlockMemberText); ok {
+			sb.WriteString(textBlock.Value)
+		}
+	}
+	result := strings.TrimSpace(sb.String())
+	if result == "" {
+		return "", fmt.Errorf("bedrock returned empty text content")
+	}
+	return result, nil
+}
+
+func extractJSONObject(s string) string {
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
+	if start < 0 || end < 0 || end <= start {
+		return ""
+	}
+	return strings.TrimSpace(s[start : end+1])
+}
+
+func (h *Handler) logAIDebug(label, content string) {
+	if !h.cfg.EnableAIDebugLogs {
+		return
+	}
+	maxChars := h.cfg.AIDebugLogMaxChars
+	if maxChars <= 0 {
+		maxChars = 4000
+	}
+	trimmed := strings.TrimSpace(content)
+	if len(trimmed) > maxChars {
+		log.Printf("ai_debug_%s=%s...<truncated %d chars>", label, trimmed[:maxChars], len(trimmed)-maxChars)
+		return
+	}
+	log.Printf("ai_debug_%s=%s", label, trimmed)
 }
 
 func (h *Handler) detectMedicalEntities(ctx context.Context, text string) []map[string]any {
@@ -1269,15 +1330,76 @@ func fetchTranscriptText(ctx context.Context, transcriptURL string) (string, err
 			Transcripts []struct {
 				Transcript string `json:"transcript"`
 			} `json:"transcripts"`
+			Items []struct {
+				Type         string `json:"type"`
+				Alternatives []struct {
+					Content string `json:"content"`
+				} `json:"alternatives"`
+			} `json:"items"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return "", err
 	}
-	if len(parsed.Results.Transcripts) == 0 {
-		return "", nil
+	itemsTranscript := rebuildTranscriptFromItems(parsed.Results.Items)
+
+	// Priority:
+	// 1) token-level rebuild from items
+	// 2) fallback to longest transcripts[] string
+	if itemsTranscript != "" {
+		return itemsTranscript, nil
 	}
-	return strings.TrimSpace(parsed.Results.Transcripts[0].Transcript), nil
+	return longestTranscript(parsed.Results.Transcripts), nil
+}
+
+func longestTranscript(transcripts []struct {
+	Transcript string `json:"transcript"`
+}) string {
+	if len(transcripts) == 0 {
+		return ""
+	}
+	best := ""
+	for _, t := range transcripts {
+		current := strings.TrimSpace(t.Transcript)
+		if len(current) > len(best) {
+			best = current
+		}
+	}
+	return best
+}
+
+func rebuildTranscriptFromItems(items []struct {
+	Type         string `json:"type"`
+	Alternatives []struct {
+		Content string `json:"content"`
+	} `json:"alternatives"`
+}) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, item := range items {
+		if len(item.Alternatives) == 0 {
+			continue
+		}
+		token := strings.TrimSpace(item.Alternatives[0].Content)
+		if token == "" {
+			continue
+		}
+		if item.Type == "punctuation" {
+			// Punctuation attaches to previous token without a leading space.
+			b.WriteString(token)
+			continue
+		}
+		if item.Type != "pronunciation" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(token)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func extractClinicalSignals(text string) (extractedEntities, []map[string]any) {
@@ -1340,6 +1462,30 @@ func enrichExtractedEntities(transcription, translation string, extracted map[st
 	}
 	if _, ok := extracted["vitals"]; !ok {
 		extracted["vitals"] = map[string]any{}
+	}
+	if _, ok := extracted["symptom_details"]; !ok {
+		extracted["symptom_details"] = []map[string]any{}
+	}
+	if _, ok := extracted["medications_mentioned"]; !ok {
+		extracted["medications_mentioned"] = []string{}
+	}
+	if _, ok := extracted["red_flags"]; !ok {
+		extracted["red_flags"] = []string{}
+	}
+	if _, ok := extracted["asha_next_steps"]; !ok {
+		extracted["asha_next_steps"] = []string{}
+	}
+	if _, ok := extracted["pregnancy_context"]; !ok {
+		extracted["pregnancy_context"] = map[string]any{}
+	}
+	if _, ok := extracted["immunization_context"]; !ok {
+		extracted["immunization_context"] = map[string]any{}
+	}
+	if _, ok := extracted["clinical_summary"]; !ok {
+		extracted["clinical_summary"] = ""
+	}
+	if _, ok := extracted["referral_urgency"]; !ok {
+		extracted["referral_urgency"] = "routine"
 	}
 
 	source := strings.TrimSpace(translation)

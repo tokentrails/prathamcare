@@ -11,6 +11,8 @@ import (
 type Config struct {
 	AppEnv               string
 	AWSRegion            string
+	EnableAIDebugLogs    bool
+	AIDebugLogMaxChars   int
 	AuroraDSNSecretARN   string
 	AuroraDSN            string
 	RDSProxyEndpoint     string
@@ -37,6 +39,8 @@ func Load() (Config, error) {
 	cfg := Config{
 		AppEnv:               getEnv("APP_ENV", "dev"),
 		AWSRegion:            getEnv("AWS_REGION", "ap-south-1"),
+		EnableAIDebugLogs:    strings.EqualFold(getEnv("AI_DEBUG_LOGS_ENABLED", "false"), "true"),
+		AIDebugLogMaxChars:   parseInt(getEnv("AI_DEBUG_LOG_MAX_CHARS", "4000"), 4000),
 		AuroraDSNSecretARN:   os.Getenv("AURORA_DSN_SECRET_ARN"),
 		AuroraDSN:            os.Getenv("AURORA_DSN"),
 		RDSProxyEndpoint:     os.Getenv("RDS_PROXY_ENDPOINT"),
@@ -52,7 +56,7 @@ func Load() (Config, error) {
 		OpenSearchEndpoint:   os.Getenv("OPENSEARCH_ENDPOINT"),
 		BedrockModelID:       os.Getenv("BEDROCK_MODEL_ID"),
 		BedrockRegion:        getEnv("BEDROCK_REGION", getEnv("AWS_REGION", "ap-south-1")),
-		TranscribeLanguages:  parseCSV(getEnv("TRANSCRIBE_LANGUAGE_OPTIONS", "hi-IN,kn-IN,ta-IN,te-IN,en-IN")),
+		TranscribeLanguages:  parseCSV(getEnv("TRANSCRIBE_LANGUAGE_OPTIONS", "en-IN,kn-IN")),
 		CognitoUserPoolID:    os.Getenv("COGNITO_USER_POOL_ID"),
 		CognitoClientID:      os.Getenv("COGNITO_CLIENT_ID"),
 	}
@@ -87,4 +91,21 @@ func parseCSV(v string) []string {
 		}
 	}
 	return out
+}
+
+func parseInt(v string, fallback int) int {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	n := 0
+	for _, ch := range v {
+		if ch < '0' || ch > '9' {
+			return fallback
+		}
+		n = n*10 + int(ch-'0')
+	}
+	if n <= 0 {
+		return fallback
+	}
+	return n
 }

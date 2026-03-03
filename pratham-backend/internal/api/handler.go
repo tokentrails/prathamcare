@@ -199,7 +199,7 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 			RecordingID:      recordingID,
 			PatientID:        in.PatientID,
 			RecordedByUserID: claims.Subject,
-			LanguageCode:     defaultString(in.Language, "hi-IN"),
+			LanguageCode:     defaultString(in.Language, "en-IN"),
 			S3Bucket:         h.cfg.S3VoiceBucket,
 			S3Key:            objectKey,
 			CreatedAt:        time.Now().UTC(),
@@ -279,13 +279,21 @@ func (h *Handler) authorize(req events.APIGatewayV2HTTPRequest, allowedRoles ...
 
 func isSupportedAudioType(contentType string) bool {
 	ct := strings.ToLower(strings.TrimSpace(contentType))
-	return ct == "audio/mpeg" || ct == "audio/mp3" || ct == "audio/wav" || ct == "audio/x-wav"
+	return ct == "audio/mpeg" ||
+		ct == "audio/mp3" ||
+		ct == "audio/wav" ||
+		ct == "audio/x-wav" ||
+		ct == "audio/mp4" ||
+		ct == "audio/m4a" ||
+		ct == "audio/aac"
 }
 
 func extFromContentType(contentType string) string {
 	switch strings.ToLower(strings.TrimSpace(contentType)) {
 	case "audio/mpeg", "audio/mp3":
 		return ".mp3"
+	case "audio/mp4", "audio/m4a", "audio/aac":
+		return ".m4a"
 	default:
 		return ".wav"
 	}

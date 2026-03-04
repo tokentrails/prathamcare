@@ -235,6 +235,12 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 		return h.handleVoiceHistory(ctx, req)
 	case method == http.MethodGet && path == "/api/v1/encounters/history":
 		return h.handleEncounterHistory(ctx, req)
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/v1/encounters/"):
+		encounterID := strings.TrimPrefix(path, "/api/v1/encounters/")
+		if strings.TrimSpace(encounterID) == "" || strings.EqualFold(encounterID, "history") {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleEncounterDetail(ctx, req, encounterID)
 	case method == http.MethodGet && path == "/api/v1/sync/status":
 		claims, err := h.authorize(req, "asha_worker")
 		if err != nil {

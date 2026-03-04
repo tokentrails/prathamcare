@@ -31,6 +31,7 @@ type Repository interface {
 
 	EnsurePatientByExternalID(ctx context.Context, externalID string) (models.Patient, error)
 	CreateEncounter(ctx context.Context, encounter models.EncounterRecord) (models.EncounterRecord, error)
+	GetEncounterByID(ctx context.Context, encounterID string) (models.EncounterRecord, error)
 	ListEncountersByASHA(ctx context.Context, ashaUserID string, limit int) ([]models.EncounterRecord, error)
 	UpdateEncounterFHIRSync(ctx context.Context, encounterID, fhirEncounterID, syncStatus string) error
 	CreateEncounterAlerts(ctx context.Context, encounterID string, alerts []models.EncounterAlert) error

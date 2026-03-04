@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/network/api_client.dart';
+import 'encounter_detail_screen.dart';
 
 enum ASHAJobsView {
   overview,
@@ -218,17 +219,32 @@ class _ASHAActivityScreenState extends State<ASHAActivityScreen> {
           subtitle: '${_encounters.length} records',
           child: _encounters.isEmpty
               ? const _EmptyState(text: 'No encounter records yet')
-              : Column(
-                  children: _encounters
-                      .map(
-                        (e) => _ListTileCard(
-                          title: '${e['visit_type'] ?? 'visit'}',
-                          subtitle:
-                              'Patient: ${e['patient_id'] ?? '-'} • Sync: ${e['sync_status'] ?? '-'}',
-                          trailing: _formatDate(e['created_at']),
-                        ),
-                      )
-                      .toList(),
+              : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _encounters.length,
+                  itemBuilder: (context, index) {
+                    final e = _encounters[index];
+                    return _EncounterHistoryRow(
+                      patientId: '${e['patient_id'] ?? ''}',
+                      visitType: '${e['visit_type'] ?? ''}',
+                      syncStatus: '${e['sync_status'] ?? ''}',
+                      status: '${e['status'] ?? ''}',
+                      occurredAt: '${e['occurred_at'] ?? ''}',
+                      createdAt: '${e['created_at'] ?? ''}',
+                      onTap: () {
+                        final encounterID = '${e['encounter_id'] ?? ''}'.trim();
+                        if (encounterID.isEmpty) {
+                          return;
+                        }
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => EncounterDetailScreen(encounterId: encounterID),
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
         );
       case ASHAJobsView.transcriptions:
@@ -392,38 +408,196 @@ class _ListTileCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.trailing,
+    this.onTap,
   });
 
   final String title;
   final String subtitle;
   final String trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-              ],
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(trailing, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
-        ],
+            const SizedBox(width: 8),
+            Text(trailing, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+            if (onTap != null) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 18),
+            ],
+          ],
+        ),
       ),
     );
+  }
+}
+
+class _EncounterHistoryRow extends StatelessWidget {
+  const _EncounterHistoryRow({
+    required this.patientId,
+    required this.visitType,
+    required this.syncStatus,
+    required this.status,
+    required this.occurredAt,
+    required this.createdAt,
+    required this.onTap,
+  });
+
+  final String patientId;
+  final String visitType;
+  final String syncStatus;
+  final String status;
+  final String occurredAt;
+  final String createdAt;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedSync = syncStatus.trim().toLowerCase();
+    final normalizedStatus = status.trim().toLowerCase();
+    final happenedAt = _ASHAActivityScreenState._formatDate(
+      occurredAt.trim().isEmpty ? createdAt : occurredAt,
+    );
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _patientLabel(patientId),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${_visitTypeLabel(visitType)} • $happenedAt',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _tinyChip(_syncLabel(normalizedSync), _syncChipColor(normalizedSync)),
+            if (normalizedStatus.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              _tinyChip(_statusLabel(normalizedStatus), const Color(0xFFE2E8F0)),
+            ],
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tinyChip(String label, Color bg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF334155),
+        ),
+      ),
+    );
+  }
+
+  static String _patientLabel(String patientId) {
+    final cleaned = patientId.trim();
+    if (cleaned.isEmpty) {
+      return 'Patient -';
+    }
+    if (cleaned.length <= 12) {
+      return 'Patient $cleaned';
+    }
+    return 'Patient ${cleaned.substring(0, 8)}';
+  }
+
+  static String _visitTypeLabel(String raw) {
+    final cleaned = raw.trim();
+    if (cleaned.isEmpty) {
+      return 'Visit';
+    }
+    final withSpaces = cleaned.replaceAll('_', ' ');
+    return withSpaces[0].toUpperCase() + withSpaces.substring(1);
+  }
+
+  static String _syncLabel(String sync) {
+    switch (sync) {
+      case 'synced':
+        return 'Synced';
+      case 'queued':
+      case 'pending':
+        return 'Queued';
+      case 'failed':
+        return 'Failed';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  static Color _syncChipColor(String sync) {
+    switch (sync) {
+      case 'synced':
+        return const Color(0xFFDCFCE7);
+      case 'queued':
+      case 'pending':
+        return const Color(0xFFFEF3C7);
+      case 'failed':
+        return const Color(0xFFFEE2E2);
+      default:
+        return const Color(0xFFE2E8F0);
+    }
+  }
+
+  static String _statusLabel(String status) {
+    if (status.isEmpty) {
+      return '';
+    }
+    return status[0].toUpperCase() + status.substring(1);
   }
 }
 

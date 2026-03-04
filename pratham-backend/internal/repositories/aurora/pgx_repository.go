@@ -705,6 +705,37 @@ LIMIT $2`, ashaUserID, limit)
 	return out, rows.Err()
 }
 
+func (r *PgxRepository) GetEncounterByID(ctx context.Context, encounterID string) (models.EncounterRecord, error) {
+	var out models.EncounterRecord
+	err := r.pool.QueryRow(ctx, `
+SELECT encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
+	COALESCE(source_audio_bucket, ''), COALESCE(source_audio_key, ''), COALESCE(transcription_text, ''), COALESCE(translation_text, ''),
+	extracted_entities::text, clinical_alerts::text, COALESCE(fhir_encounter_id, ''), sync_status::text, COALESCE(idempotency_key, ''),
+	created_at, updated_at
+FROM encounters
+WHERE encounter_id = $1`, encounterID).Scan(
+		&out.EncounterID,
+		&out.PatientID,
+		&out.ASHAUserID,
+		&out.ClinicID,
+		&out.VisitType,
+		&out.Status,
+		&out.OccurredAt,
+		&out.SourceAudioBucket,
+		&out.SourceAudioKey,
+		&out.TranscriptionText,
+		&out.TranslationText,
+		&out.ExtractedEntities,
+		&out.ClinicalAlerts,
+		&out.FHIREncounterID,
+		&out.SyncStatus,
+		&out.IdempotencyKey,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
 func (r *PgxRepository) UpdateEncounterFHIRSync(ctx context.Context, encounterID, fhirEncounterID, syncStatus string) error {
 	_, err := r.pool.Exec(ctx, `
 UPDATE encounters

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -792,6 +793,69 @@ func (h *Handler) handleEncounterHistory(ctx context.Context, req events.APIGate
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
 	}
+	return h.json(http.StatusOK, resp)
+}
+
+func (h *Handler) handleEncounterDetail(ctx context.Context, req events.APIGatewayV2HTTPRequest, encounterID string) (events.APIGatewayV2HTTPResponse, error) {
+	claims, err := h.authorize(req, "asha_worker")
+	if err != nil {
+		return h.error(http.StatusUnauthorized, "AUTHENTICATION_FAILED", err.Error())
+	}
+	if h.deps == nil || h.deps.Aurora == nil {
+		return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "aurora repository is not configured")
+	}
+
+	ownerID := claims.Subject
+	resolveCtx, cancelResolve := context.WithTimeout(ctx, 3*time.Second)
+	if resolved, resolveErr := h.resolveASHAUserID(resolveCtx, claims.Subject); resolveErr == nil {
+		ownerID = resolved
+	}
+	cancelResolve()
+
+	readCtx, cancelRead := context.WithTimeout(ctx, 4*time.Second)
+	encounter, readErr := h.deps.Aurora.GetEncounterByID(readCtx, encounterID)
+	cancelRead()
+	if readErr != nil {
+		if errors.Is(readErr, pgx.ErrNoRows) {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "encounter not found")
+		}
+		return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "unable to fetch encounter details")
+	}
+	if ownerID != "" && encounter.ASHAUserID != "" && encounter.ASHAUserID != ownerID {
+		return h.error(http.StatusForbidden, "AUTHORIZATION_DENIED", "encounter does not belong to caller")
+	}
+
+	extractedEntities := map[string]any{}
+	if strings.TrimSpace(encounter.ExtractedEntities) != "" {
+		_ = json.Unmarshal([]byte(encounter.ExtractedEntities), &extractedEntities)
+	}
+	clinicalAlerts := make([]map[string]any, 0)
+	if strings.TrimSpace(encounter.ClinicalAlerts) != "" {
+		_ = json.Unmarshal([]byte(encounter.ClinicalAlerts), &clinicalAlerts)
+	}
+
+	resp := map[string]any{
+		"encounter_id":      encounter.EncounterID,
+		"patient_id":        encounter.PatientID,
+		"visit_type":        encounter.VisitType,
+		"status":            encounter.Status,
+		"sync_status":       encounter.SyncStatus,
+		"fhir_encounter_id": encounter.FHIREncounterID,
+		"occurred_at":       encounter.OccurredAt.UTC().Format(time.RFC3339),
+		"created_at":        encounter.CreatedAt.UTC().Format(time.RFC3339),
+		"updated_at":        encounter.UpdatedAt.UTC().Format(time.RFC3339),
+		"transcription":     encounter.TranscriptionText,
+		"translation":       encounter.TranslationText,
+		"extracted_entities": extractedEntities,
+		"clinical_alerts":   clinicalAlerts,
+	}
+	if strings.TrimSpace(encounter.SourceAudioBucket) != "" {
+		resp["source_audio_bucket"] = encounter.SourceAudioBucket
+	}
+	if strings.TrimSpace(encounter.SourceAudioKey) != "" {
+		resp["source_audio_key"] = encounter.SourceAudioKey
+	}
+
 	return h.json(http.StatusOK, resp)
 }
 

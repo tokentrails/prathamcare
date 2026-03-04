@@ -46,6 +46,18 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> getEncounterByID({
+    String? bearerToken,
+    required String encounterId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/encounters/$encounterId'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
   Future<Map<String, dynamic>> replaySync({
     String? bearerToken,
     int maxItems = 10,

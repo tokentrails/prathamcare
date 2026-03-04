@@ -62,7 +62,7 @@ func NewDependencies(ctx context.Context, cfg config.Config) (*Dependencies, err
 		deps.Storage = storageRepo
 	}
 
-	if cfg.HealthLakeEndpoint != "" {
+	if cfg.HealthLakeEnabled && cfg.HealthLakeEndpoint != "" {
 		hlCtx, cancelHealthLake := context.WithTimeout(ctx, 4*time.Second)
 		hlRepo, err := repohealthlake.NewHTTPRepository(hlCtx, cfg.AWSRegion, cfg.HealthLakeEndpoint)
 		cancelHealthLake()
@@ -71,6 +71,8 @@ func NewDependencies(ctx context.Context, cfg config.Config) (*Dependencies, err
 		} else {
 			deps.HealthLake = hlRepo
 		}
+	} else if !cfg.HealthLakeEnabled {
+		log.Printf("info: healthlake integration disabled by HEALTHLAKE_ENABLED=false")
 	}
 
 	if cfg.OpenSearchEndpoint != "" {

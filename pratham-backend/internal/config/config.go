@@ -22,6 +22,7 @@ type Config struct {
 	DynamoTableSchedules string
 	DynamoSchedulePKName string
 	DynamoScheduleSKName string
+	HealthLakeEnabled    bool
 	HealthLakeEndpoint   string
 	S3DocumentsBucket    string
 	S3VoiceBucket        string
@@ -50,6 +51,7 @@ func Load() (Config, error) {
 		DynamoTableSchedules: getEnv("DDB_TABLE_SCHEDULES", "prathamcare-schedules"),
 		DynamoSchedulePKName: getEnv("DDB_SCHEDULE_PK", "physician_id"),
 		DynamoScheduleSKName: getEnv("DDB_SCHEDULE_SK", "schedule_slot"),
+		HealthLakeEnabled:    parseBool(getEnv("HEALTHLAKE_ENABLED", "true"), true),
 		HealthLakeEndpoint:   os.Getenv("HEALTHLAKE_FHIR_ENDPOINT"),
 		S3DocumentsBucket:    getEnv("S3_BUCKET_DOCUMENTS", "prathamcare-medical-documents"),
 		S3VoiceBucket:        getEnv("S3_BUCKET_VOICE", "prathamcare-voice-recordings"),
@@ -108,4 +110,15 @@ func parseInt(v string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func parseBool(v string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }

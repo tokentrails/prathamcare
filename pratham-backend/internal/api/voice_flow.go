@@ -454,6 +454,8 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 		fhirSyncStatus = "queued"
 		warnings = append(warnings, "FHIR sync queued for retry")
 		log.Printf("encounter_create_fhir_warn request_id=%s patient_id=%s error=%v", requestID, patient.PatientID, fhirErr)
+	} else if !strings.EqualFold(fhirSyncStatus, "synced") {
+		warnings = append(warnings, "FHIR sync queued for retry")
 	}
 
 	idempotencyKey := strings.TrimSpace(headerValue(req.Headers, "Idempotency-Key"))
@@ -523,9 +525,11 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 		"sync_status":       enc.SyncStatus,
 		"fhir_encounter_id": enc.FHIREncounterID,
 	}
-	if fhirErr != nil {
+	if fhirErr != nil || !strings.EqualFold(fhirSyncStatus, "synced") {
 		out["warning"] = "Encounter stored in Aurora; FHIR sync queued for retry"
-		out["fhir_error"] = fhirErr.Error()
+		if fhirErr != nil {
+			out["fhir_error"] = fhirErr.Error()
+		}
 		if queueID, qErr := h.enqueueFHIRSyncFallback(ctx, claims.Subject, patient.PatientID, map[string]any{
 			"encounter_id":    enc.EncounterID,
 			"fhir_patient_id": patient.FHIRPatientID,

@@ -644,7 +644,9 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x140F756D), blurRadius: 16, offset: Offset(0, 4)),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -677,11 +679,34 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
                 runSpacing: 8,
                 children: _recentPatients.map((p) {
                   final label = '${p['name'] ?? 'Patient'}'.trim();
-                  return ActionChip(
-                    onPressed: () => _selectPatientById('${p['patient_id'] ?? ''}'),
-                    label: Text(
-                      label.isEmpty ? 'Patient' : label,
-                      overflow: TextOverflow.ellipsis,
+                  return InkWell(
+                    onTap: () => _selectPatientById('${p['patient_id'] ?? ''}'),
+                    borderRadius: BorderRadius.circular(999),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.lightInputBg,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.lightBorder),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.history_rounded, size: 14, color: AppColors.lightTextMuted),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              label.isEmpty ? 'Patient' : label,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.lightTextPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }).toList(),
@@ -743,60 +768,97 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Column(
-            children: [
-              InkWell(
-                onTap: _toggleRecording,
-                borderRadius: BorderRadius.circular(999),
-                child: CircleAvatar(
-                  radius: 24,
-                  backgroundColor: _recording ? AppColors.lightErrorSoft : const Color(0x1A0F756D),
-                  child: Icon(
-                    _recording ? Icons.stop_rounded : Icons.mic_rounded,
-                    color: _recording ? AppColors.lightError : AppColors.primary,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              InkWell(
-                onTap: _pickAudioFile,
-                borderRadius: BorderRadius.circular(999),
-                child: CircleAvatar(
-                  radius: 24,
-                  backgroundColor: _selectedAudio == null ? AppColors.lightErrorSoft : const Color(0x1A0F756D),
-                  child: Icon(
-                    Icons.upload_file_rounded,
-                    color: _selectedAudio == null ? AppColors.lightError : AppColors.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Encounter Audio (Record or Upload)',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  'Encounter Audio',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.lightTextPrimary),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   _recording
-                      ? 'Recording in progress... tap mic to stop.'
+                      ? 'Recording in progress...'
                       : _selectedAudio != null
-                          ? 'Selected: ${_selectedAudio!.name}'
-                          : 'Use mic to record or upload .wav/.mp3 file (<=10 MB).',
-                  style: const TextStyle(color: AppColors.lightTextMuted),
+                          ? '${_selectedAudio!.name} (${(_selectedAudio!.size / 1024).toStringAsFixed(1)} KB)'
+                          : 'Record or upload audio',
+                  style: TextStyle(
+                    color: _recording ? AppColors.lightError : AppColors.lightTextSecondary,
+                    fontSize: 13,
+                    fontWeight: _recording ? FontWeight.w600 : FontWeight.w400,
+                  ),
                 ),
               ],
             ),
           ),
-          Text(
-            _selectedAudio != null ? '${(_selectedAudio!.size / 1024).toStringAsFixed(1)} KB' : 'No File',
-            style: const TextStyle(fontWeight: FontWeight.w600),
+          const SizedBox(width: 12),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              InkWell(
+                onTap: _toggleRecording,
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _recording ? AppColors.lightErrorSoft : const Color(0x1A0F756D),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _recording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                    color: _recording ? AppColors.lightError : AppColors.primary,
+                    size: 24,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: _pickAudioFile,
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _selectedAudio == null ? AppColors.lightInputBg : const Color(0x1A0F756D),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _selectedAudio == null ? AppColors.lightBorder : Colors.transparent,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.upload_file_rounded,
+                    color: _selectedAudio == null ? AppColors.lightTextSecondary : AppColors.primary,
+                    size: 24,
+                  ),
+                ),
+              ),
+              if (_selectedAudio != null) ...[
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedAudio = null;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(
+                      color: AppColors.lightErrorSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: AppColors.lightError,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -845,6 +907,7 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
   String _gender = 'female';
   bool _submitting = false;
   String? _error;
+  int _currentStep = 0;
 
   bool get _editing => widget.existingPatient != null;
 
@@ -897,6 +960,26 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
     _pincodeCtrl.dispose();
     _landmarkCtrl.dispose();
     super.dispose();
+  }
+
+  void _nextStep() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+    setState(() {
+      _currentStep++;
+      _error = null;
+    });
+  }
+
+  void _previousStep() {
+    if (_currentStep > 0) {
+      setState(() {
+        _currentStep--;
+        _error = null;
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -987,11 +1070,28 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _editing ? 'Edit Patient' : 'Add New Patient',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          _editing ? 'Edit Patient' : 'Add New Patient',
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, color: AppColors.lightTextPrimary),
+                      tooltip: 'Close',
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                _buildStepper(),
+                const SizedBox(height: 24),
+                if (_currentStep == 0)
                 PatientFormSection(
                   title: 'Basic Details',
                   child: Column(
@@ -1006,21 +1106,57 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
                         ],
                       ),
                       const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        value: _gender,
-                        decoration: const InputDecoration(labelText: 'Gender *'),
-                        items: const [
-                          DropdownMenuItem(value: 'male', child: Text('Male')),
-                          DropdownMenuItem(value: 'female', child: Text('Female')),
-                          DropdownMenuItem(value: 'other', child: Text('Other')),
-                          DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Gender *',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.lightTextSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<String>(
+                            value: _gender,
+                            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.lightTextMuted),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.lightTextPrimary,
+                            ),
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: AppColors.lightInputBg,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: AppColors.lightBorder),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: AppColors.lightBorder),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'male', child: Text('Male')),
+                              DropdownMenuItem(value: 'female', child: Text('Female')),
+                              DropdownMenuItem(value: 'other', child: Text('Other')),
+                              DropdownMenuItem(value: 'unknown', child: Text('Unknown')),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() => _gender = value);
+                            },
+                          ),
                         ],
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setState(() => _gender = value);
-                        },
                       ),
                       const SizedBox(height: 10),
                       _textField(
@@ -1061,9 +1197,9 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                PatientFormSection(
+                )
+                else if (_currentStep == 1)
+                  PatientFormSection(
                   title: 'Address',
                   child: Column(
                     children: [
@@ -1114,9 +1250,9 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
                       _textField(_landmarkCtrl, 'Landmark'),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                PatientFormSection(
+                )
+                else if (_currentStep == 2)
+                  PatientFormSection(
                   title: 'ABDM/Contact (Optional)',
                   child: Column(
                     children: [
@@ -1160,19 +1296,53 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
                   const SizedBox(height: 10),
                   Text(_error!, style: const TextStyle(color: AppColors.lightError)),
                 ],
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: AppPillButton(
-                    onPressed: _submitting ? null : _submit,
-                    icon: Icons.save_outlined,
-                    label: _submitting
-                        ? (_editing ? 'Saving...' : 'Creating...')
-                        : (_editing ? 'Save Changes' : 'Create Patient'),
-                    variant: AppPillButtonVariant.primary,
+                const SizedBox(height: 24),
+                if (_currentStep == 0)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: AppPillButton(
+                      onPressed: _submitting ? null : _nextStep,
+                      icon: Icons.arrow_forward_rounded,
+                      label: 'Continue',
+                      variant: AppPillButtonVariant.primary,
+                    ),
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: SizedBox(
+                          height: 52,
+                          child: AppPillButton(
+                            onPressed: _submitting ? null : _previousStep,
+                            icon: Icons.arrow_back_rounded,
+                            label: 'Back',
+                            variant: AppPillButtonVariant.light,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 3,
+                        child: SizedBox(
+                          height: 52,
+                          child: AppPillButton(
+                            onPressed: _submitting 
+                                ? null 
+                                : (_currentStep < 2 ? _nextStep : _submit),
+                            icon: _currentStep < 2 ? Icons.arrow_forward_rounded : Icons.arrow_outward_rounded,
+                            label: _submitting
+                                ? (_editing ? 'Saving...' : 'Submitting...')
+                                : (_currentStep < 2 ? 'Continue' : (_editing ? 'Save Changes' : 'Submit')),
+                            variant: AppPillButtonVariant.primary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                const SizedBox(height: 8),
               ],
             ),
           ),
@@ -1181,17 +1351,149 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
     );
   }
 
+  Widget _buildStepper() {
+    final steps = ['Basic Info', 'Address', 'Contact'];
+    final children = <Widget>[];
+
+    for (int i = 0; i < steps.length; i++) {
+      final isActive = i == _currentStep;
+      final isCompleted = i < _currentStep;
+      
+      if (isActive) {
+        children.add(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A), // Dark navy as per UI
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    '${i + 1}',
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  steps[i],
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        children.add(
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: isCompleted ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '${i + 1}',
+              style: TextStyle(
+                color: isCompleted ? Colors.white : const Color(0xFF94A3B8),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+      
+      if (i < steps.length - 1) {
+        children.add(
+          Expanded(
+            child: Container(
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 12),
+              color: const Color(0xFFE2E8F0),
+            ),
+          ),
+        );
+      }
+    }
+    
+    return Row(children: children);
+  }
+
   Widget _textField(
     TextEditingController controller,
     String label, {
     String? Function(String?)? validator,
     TextInputType? keyboardType,
   }) {
-    return TextFormField(
-      controller: controller,
-      validator: validator,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(labelText: label),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.lightTextSecondary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: controller,
+          validator: validator,
+          keyboardType: keyboardType,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppColors.lightTextPrimary,
+          ),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: AppColors.lightInputBg,
+            hintText: 'Enter ${label.replaceAll('*', '').trim()}',
+            hintStyle: const TextStyle(
+              fontSize: 14,
+              color: AppColors.lightPlaceholder,
+              fontWeight: FontWeight.w400,
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.lightBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.lightBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.lightError),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

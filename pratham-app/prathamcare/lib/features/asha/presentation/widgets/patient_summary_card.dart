@@ -25,35 +25,87 @@ class PatientSummaryCard extends StatelessWidget {
     ].where((v) => v.isNotEmpty).join(', ');
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFEFFCF9),
+        color: const Color(0xFFEFFCF9), // AppColors.primarySoft
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.primaryBorder),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A0F756D), blurRadius: 8, offset: Offset(0, 2)),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.verified_user_outlined, color: AppColors.primary),
-              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: AppColors.primary.withValues(alpha: 0.1), blurRadius: 4),
+                  ],
+                ),
+                child: const Icon(Icons.verified_user_rounded, color: AppColors.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  name.isEmpty ? 'Patient selected' : name,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'Patient selected' : name,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.lightTextPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      [if (phone.isNotEmpty) phone, if (location.isNotEmpty) location].join(' • '),
+                      style: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 13),
+                    ),
+                  ],
                 ),
               ),
-              TextButton(onPressed: onChange, child: const Text('Change')),
-              if (onEdit != null) TextButton(onPressed: onEdit, child: const Text('Edit')),
             ],
           ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              [if (phone.isNotEmpty) phone, if (location.isNotEmpty) location].join(' • '),
-              style: const TextStyle(color: AppColors.lightTextMuted, fontSize: 12),
-            ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (onEdit != null)
+                InkWell(
+                  onTap: onEdit,
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.primary),
+                      borderRadius: BorderRadius.circular(999),
+                      color: Colors.white,
+                    ),
+                    child: const Text(
+                      'Edit Details',
+                      style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 12),
+              InkWell(
+                onTap: onChange,
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'Change Patient',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

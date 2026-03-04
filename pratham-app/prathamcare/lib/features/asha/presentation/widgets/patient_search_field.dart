@@ -42,9 +42,34 @@ class PatientSearchField extends StatelessWidget {
         TextField(
           controller: controller,
           onChanged: onChanged,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppColors.lightTextPrimary,
+          ),
           decoration: InputDecoration(
-            hintText: 'Search by name, phone, ABHA, or patient ID',
-            prefixIcon: const Icon(Icons.search_rounded),
+            filled: true,
+            fillColor: AppColors.lightInputBg,
+            hintText: 'Search by name, phone, ABHA...',
+            hintStyle: const TextStyle(
+              fontSize: 14,
+              color: AppColors.lightPlaceholder,
+              fontWeight: FontWeight.w400,
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            prefixIcon: const Icon(Icons.search_rounded, color: AppColors.lightPlaceholder),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.lightBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.lightBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+            ),
             suffixIcon: loading
                 ? const Padding(
                     padding: EdgeInsets.all(12),
@@ -57,7 +82,7 @@ class PatientSearchField extends StatelessWidget {
                 : (controller.text.trim().isNotEmpty && onClear != null)
                     ? IconButton(
                         onPressed: onClear,
-                        icon: const Icon(Icons.close_rounded),
+                        icon: const Icon(Icons.close_rounded, color: AppColors.lightTextMuted),
                       )
                     : null,
           ),

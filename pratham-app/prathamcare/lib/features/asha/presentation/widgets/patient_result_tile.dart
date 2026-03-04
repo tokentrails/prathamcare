@@ -30,21 +30,31 @@ class PatientResultTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppColors.primarySoft : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? AppColors.primaryBorder : const Color(0xFFE2E8F0),
-          ),
+          border: selected 
+              ? Border.all(color: AppColors.primaryBorder)
+              : Border.all(color: Colors.transparent),
+          boxShadow: selected ? null : const [
+            BoxShadow(color: Color(0x0A0F756D), blurRadius: 8, offset: Offset(0, 2)),
+          ],
         ),
         child: Row(
           children: [
-            const Icon(Icons.person_outline_rounded, color: AppColors.primary),
-            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(
+                color: AppColors.primarySoft,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 20),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     name.isEmpty ? 'Unnamed patient' : name,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.lightTextPrimary),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -57,14 +67,15 @@ class PatientResultTile extends StatelessWidget {
             ),
             if (abhaMasked.isNotEmpty)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(99),
+                  color: AppColors.lightInputBg,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.lightBorder),
                 ),
                 child: Text(
                   'ABHA $abhaMasked',
-                  style: const TextStyle(fontSize: 11, color: AppColors.lightTextMuted),
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.lightTextSecondary),
                 ),
               ),
           ],

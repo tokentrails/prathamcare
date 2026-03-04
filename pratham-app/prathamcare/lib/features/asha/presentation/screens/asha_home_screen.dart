@@ -66,7 +66,7 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
   Future<void> _openCreateEncounter() async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) => const VoiceVisitScreen(patientId: 'demo-ka-patient-0001'),
+        builder: (_) => const VoiceVisitScreen(),
       ),
     );
     if (result == true) {

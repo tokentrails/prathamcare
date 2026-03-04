@@ -30,6 +30,11 @@ type Repository interface {
 	UpdateVoiceJobStatus(ctx context.Context, voiceJobID, status, transcriptionJobID, errorCode, errorMessage string, completedAt *time.Time) error
 
 	EnsurePatientByExternalID(ctx context.Context, externalID string) (models.Patient, error)
+	CreatePatient(ctx context.Context, patient models.Patient) (models.Patient, error)
+	SearchPatients(ctx context.Context, viewerUserRef string, viewerUserUUID *string, filter models.PatientSearchFilter) ([]models.Patient, error)
+	GetPatientByIDForUser(ctx context.Context, viewerUserRef string, viewerUserUUID *string, patientID string) (models.Patient, error)
+	UpdatePatient(ctx context.Context, viewerUserRef string, viewerUserUUID *string, patient models.Patient) (models.Patient, error)
+	ListRecentPatientsByUser(ctx context.Context, viewerUserRef string, viewerUserUUID *string, limit int) ([]models.Patient, error)
 	CreateEncounter(ctx context.Context, encounter models.EncounterRecord) (models.EncounterRecord, error)
 	GetEncounterByID(ctx context.Context, encounterID string) (models.EncounterRecord, error)
 	ListEncountersByASHA(ctx context.Context, ashaUserID string, limit int) ([]models.EncounterRecord, error)

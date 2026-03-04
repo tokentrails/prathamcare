@@ -90,17 +90,17 @@ func (h *Handler) handleVoiceTranscribe(ctx context.Context, req events.APIGatew
 		log.Printf("voice_transcribe_asha_map_warn request_id=%s cognito_sub=%s error=%v", requestID, claims.Subject, ashaResolveErr)
 	}
 
+	viewerRef, viewerUUID := h.resolveViewer(ctx, claims.Subject)
 	patientIDForWrites := in.PatientID
 	mapCtx, cancelMap := context.WithTimeout(ctx, 3*time.Second)
-	patient, pErr := h.deps.Aurora.EnsurePatientByExternalID(mapCtx, in.PatientID)
+	patient, pErr := h.deps.Aurora.GetPatientByIDForUser(mapCtx, viewerRef, viewerUUID, in.PatientID)
 	cancelMap()
 	if pErr == nil {
 		patientIDForWrites = patient.PatientID
-	} else if strings.Contains(strings.ToLower(pErr.Error()), "invalid input syntax") {
-		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "patient_id must be a known external id or UUID")
+	} else if pErr == pgx.ErrNoRows || strings.Contains(strings.ToLower(pErr.Error()), "no rows") {
+		return h.error(http.StatusBadRequest, "RESOURCE_NOT_FOUND", "patient_id not found or not accessible")
 	} else {
-		warnings = append(warnings, "patient mapping unavailable; voice job not persisted")
-		log.Printf("voice_transcribe_patient_map_warn request_id=%s patient_id=%s error=%v", requestID, in.PatientID, pErr)
+		return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "patient lookup unavailable")
 	}
 
 	if !looksLikeUUID(patientIDForWrites) {
@@ -406,26 +406,15 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 		log.Printf("encounter_create_asha_map_warn request_id=%s sub=%s error=%v", requestID, claims.Subject, resolveErr)
 	}
 
+	viewerRef, viewerUUID := h.resolveViewer(ctx, claims.Subject)
 	patientMapCtx, cancelPatientMap := context.WithTimeout(ctx, 3*time.Second)
-	patient, pErr := h.deps.Aurora.EnsurePatientByExternalID(patientMapCtx, in.PatientID)
+	patient, pErr := h.deps.Aurora.GetPatientByIDForUser(patientMapCtx, viewerRef, viewerUUID, in.PatientID)
 	cancelPatientMap()
 	if pErr != nil {
-		if strings.Contains(strings.ToLower(pErr.Error()), "invalid input syntax") {
-			return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "unable to map patient_id: "+pErr.Error())
+		if pErr == pgx.ErrNoRows || strings.Contains(strings.ToLower(pErr.Error()), "no rows") {
+			return h.error(http.StatusBadRequest, "RESOURCE_NOT_FOUND", "patient_id not found or not accessible")
 		}
-		queueID, queueErr := h.enqueueEncounterFallback(ctx, claims.Subject, in.PatientID, in)
-		if queueErr != nil {
-			log.Printf("encounter_create_queue_failed request_id=%s error=%v", requestID, queueErr)
-			return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "encounter persistence unavailable")
-		}
-		log.Printf("encounter_create_patient_map_warn request_id=%s patient_id=%s error=%v queue_id=%s", requestID, in.PatientID, pErr, queueID)
-		return h.json(http.StatusAccepted, map[string]any{
-			"encounter_id":      "enc_" + newID(),
-			"sync_status":       "queued",
-			"fhir_encounter_id": "",
-			"queue_id":          queueID,
-			"warning":           "patient mapping unavailable; encounter queued",
-		})
+		return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "patient lookup unavailable")
 	}
 
 	if !looksLikeUUID(patient.PatientID) {

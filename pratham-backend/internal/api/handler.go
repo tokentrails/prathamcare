@@ -231,6 +231,24 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 		return h.handleVoiceTranscribeStatus(ctx, req, voiceJobID)
 	case method == http.MethodPost && path == "/api/v1/encounters":
 		return h.handleEncounterCreate(ctx, req)
+	case method == http.MethodPost && path == "/api/v1/patients":
+		return h.handlePatientCreate(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/patients/search":
+		return h.handlePatientSearch(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/patients/recent":
+		return h.handlePatientRecent(ctx, req)
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/v1/patients/"):
+		patientID := strings.TrimPrefix(path, "/api/v1/patients/")
+		if strings.TrimSpace(patientID) == "" || strings.EqualFold(patientID, "search") || strings.EqualFold(patientID, "recent") {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handlePatientGet(ctx, req, patientID)
+	case method == http.MethodPut && strings.HasPrefix(path, "/api/v1/patients/"):
+		patientID := strings.TrimPrefix(path, "/api/v1/patients/")
+		if strings.TrimSpace(patientID) == "" || strings.EqualFold(patientID, "search") || strings.EqualFold(patientID, "recent") {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handlePatientUpdate(ctx, req, patientID)
 	case method == http.MethodGet && path == "/api/v1/voice/history":
 		return h.handleVoiceHistory(ctx, req)
 	case method == http.MethodGet && path == "/api/v1/encounters/history":

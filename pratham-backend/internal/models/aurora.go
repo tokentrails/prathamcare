@@ -70,10 +70,32 @@ type Patient struct {
 	PatientID          string    `json:"patient_id"`
 	FHIRPatientID      string    `json:"fhir_patient_id"`
 	ABHAID             string    `json:"abha_id,omitempty"`
+	ABHANumber         string    `json:"abha_number,omitempty"`
+	ABHAAddress        string    `json:"abha_address,omitempty"`
+	FirstName          string    `json:"first_name,omitempty"`
+	MiddleName         string    `json:"middle_name,omitempty"`
+	LastName           string    `json:"last_name,omitempty"`
 	FullName           string    `json:"full_name"`
 	Gender             string    `json:"gender,omitempty"`
 	DateOfBirth        string    `json:"date_of_birth,omitempty"`
+	AgeYears           int       `json:"age_years,omitempty"`
 	Phone              string    `json:"phone,omitempty"`
+	PhoneNumber        string    `json:"phone_number,omitempty"`
+	PhoneE164          string    `json:"phone_e164,omitempty"`
+	Email              string    `json:"email,omitempty"`
+	AddressLine1       string    `json:"address_line1,omitempty"`
+	AddressLine2       string    `json:"address_line2,omitempty"`
+	VillageOrWard      string    `json:"village_or_ward,omitempty"`
+	GramPanchayat      string    `json:"gram_panchayat,omitempty"`
+	BlockOrTaluk       string    `json:"block_or_taluk,omitempty"`
+	District           string    `json:"district,omitempty"`
+	State              string    `json:"state,omitempty"`
+	Pincode            string    `json:"pincode,omitempty"`
+	Landmark           string    `json:"landmark,omitempty"`
+	ConsentFlags       string    `json:"consent_flags,omitempty"`
+	CreatedBy          string    `json:"created_by,omitempty"`
+	UpdatedBy          string    `json:"updated_by,omitempty"`
+	Status             string    `json:"status,omitempty"`
 	PreferredLanguage  string    `json:"preferred_language,omitempty"`
 	PrimaryClinicID    string    `json:"primary_clinic_id,omitempty"`
 	SourceSystem       string    `json:"source_system"`
@@ -81,6 +103,14 @@ type Patient struct {
 	LastSyncedAt       time.Time `json:"last_synced_at,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type PatientSearchFilter struct {
+	Query      string `json:"query,omitempty"`
+	PhoneE164  string `json:"phone_e164,omitempty"`
+	ABHANumber string `json:"abha_number,omitempty"`
+	PatientRef string `json:"patient_ref,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
 }
 
 type Appointment struct {

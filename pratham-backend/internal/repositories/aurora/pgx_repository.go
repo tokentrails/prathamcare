@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -605,6 +606,226 @@ LIMIT 1`, externalID).Scan(
 	})
 }
 
+func (r *PgxRepository) CreatePatient(ctx context.Context, patient models.Patient) (models.Patient, error) {
+	q := `
+INSERT INTO patients (
+	fhir_patient_id, abha_id, abha_number, abha_address, first_name, middle_name, last_name, full_name, gender,
+	date_of_birth, age_years, phone, phone_number, phone_e164, email, address_line1, address_line2, village_or_ward,
+	gram_panchayat, block_or_taluk, district, state, pincode, landmark, consent_flags, created_by, updated_by, status,
+	preferred_language, source_system, read_only, last_synced_at
+) VALUES (
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,
+	$10,$11,$12,$13,$14,$15,$16,$17,$18,
+	$19,$20,$21,$22,$23,$24,COALESCE($25::jsonb, '{}'::jsonb),$26,$27,$28,
+	$29,$30,$31,$32
+)
+RETURNING ` + patientSelectClause("")
+
+	var out models.Patient
+	err := r.pool.QueryRow(ctx, q,
+		patient.FHIRPatientID,
+		nullIfEmpty(patient.ABHAID),
+		nullIfEmpty(patient.ABHANumber),
+		nullIfEmpty(patient.ABHAAddress),
+		nullIfEmpty(patient.FirstName),
+		nullIfEmpty(patient.MiddleName),
+		nullIfEmpty(patient.LastName),
+		nullIfEmpty(patient.FullName),
+		nullIfEmpty(patient.Gender),
+		nullIfEmpty(patient.DateOfBirth),
+		nullIfZeroInt(patient.AgeYears),
+		nullIfEmpty(patient.Phone),
+		nullIfEmpty(patient.PhoneNumber),
+		nullIfEmpty(patient.PhoneE164),
+		nullIfEmpty(patient.Email),
+		nullIfEmpty(patient.AddressLine1),
+		nullIfEmpty(patient.AddressLine2),
+		nullIfEmpty(patient.VillageOrWard),
+		nullIfEmpty(patient.GramPanchayat),
+		nullIfEmpty(patient.BlockOrTaluk),
+		nullIfEmpty(patient.District),
+		nullIfEmpty(patient.State),
+		nullIfEmpty(patient.Pincode),
+		nullIfEmpty(patient.Landmark),
+		defaultJSON(patient.ConsentFlags, "{}"),
+		nullIfEmpty(patient.CreatedBy),
+		nullIfEmpty(patient.UpdatedBy),
+		nullIfEmpty(patient.Status),
+		nullIfEmpty(patient.PreferredLanguage),
+		nullIfEmpty(patient.SourceSystem),
+		patient.ReadOnly,
+		nullIfZeroTime(patient.LastSyncedAt),
+	).Scan(patientScanTargets(&out)...)
+	return out, err
+}
+
+func (r *PgxRepository) SearchPatients(ctx context.Context, viewerUserRef string, viewerUserUUID *string, filter models.PatientSearchFilter) ([]models.Patient, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	q := `
+SELECT ` + patientSelectClause("p") + `
+FROM patients p
+WHERE ` + patientVisibilityWhereClause() + `
+AND (
+	$3 = '' OR p.patient_id::text = $3 OR p.fhir_patient_id = $3
+)
+AND (
+	$4 = '' OR COALESCE(NULLIF(p.phone_e164, ''), COALESCE(NULLIF(p.phone_number, ''), COALESCE(NULLIF(p.phone, ''), ''))) = $4
+)
+AND (
+	$5 = '' OR COALESCE(NULLIF(p.abha_number, ''), COALESCE(NULLIF(p.abha_id, ''), '')) = $5
+)
+AND (
+	$6 = '' OR p.full_name ILIKE '%' || $6 || '%' OR
+		p.first_name ILIKE '%' || $6 || '%' OR
+		p.last_name ILIKE '%' || $6 || '%'
+)
+ORDER BY p.updated_at DESC
+LIMIT $7`
+
+	rows, err := r.pool.Query(ctx, q,
+		strings.TrimSpace(viewerUserRef),
+		nullableUUID(viewerUserUUID),
+		strings.TrimSpace(filter.PatientRef),
+		strings.TrimSpace(filter.PhoneE164),
+		strings.TrimSpace(filter.ABHANumber),
+		strings.TrimSpace(filter.Query),
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.Patient, 0, limit)
+	for rows.Next() {
+		var item models.Patient
+		if err := rows.Scan(patientScanTargets(&item)...); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *PgxRepository) GetPatientByIDForUser(ctx context.Context, viewerUserRef string, viewerUserUUID *string, patientID string) (models.Patient, error) {
+	q := `
+SELECT ` + patientSelectClause("p") + `
+FROM patients p
+WHERE p.patient_id::text = $3
+  AND ` + patientVisibilityWhereClause()
+
+	var out models.Patient
+	err := r.pool.QueryRow(ctx, q,
+		strings.TrimSpace(viewerUserRef),
+		nullableUUID(viewerUserUUID),
+		strings.TrimSpace(patientID),
+	).Scan(patientScanTargets(&out)...)
+	return out, err
+}
+
+func (r *PgxRepository) UpdatePatient(ctx context.Context, viewerUserRef string, viewerUserUUID *string, patient models.Patient) (models.Patient, error) {
+	q := `
+UPDATE patients p
+SET
+	abha_id = NULLIF($4, ''),
+	abha_number = NULLIF($5, ''),
+	abha_address = NULLIF($6, ''),
+	first_name = NULLIF($7, ''),
+	middle_name = NULLIF($8, ''),
+	last_name = NULLIF($9, ''),
+	full_name = NULLIF($10, ''),
+	gender = NULLIF($11, ''),
+	date_of_birth = NULLIF($12, '')::date,
+	age_years = $13,
+	phone = NULLIF($14, ''),
+	phone_number = NULLIF($15, ''),
+	phone_e164 = NULLIF($16, ''),
+	email = NULLIF($17, ''),
+	address_line1 = NULLIF($18, ''),
+	address_line2 = NULLIF($19, ''),
+	village_or_ward = NULLIF($20, ''),
+	gram_panchayat = NULLIF($21, ''),
+	block_or_taluk = NULLIF($22, ''),
+	district = NULLIF($23, ''),
+	state = NULLIF($24, ''),
+	pincode = NULLIF($25, ''),
+	landmark = NULLIF($26, ''),
+	consent_flags = COALESCE($27::jsonb, '{}'::jsonb),
+	updated_by = NULLIF($28, ''),
+	status = NULLIF($29, ''),
+	preferred_language = NULLIF($30, '')
+WHERE p.patient_id::text = $3
+  AND ` + patientVisibilityWhereClause() + `
+RETURNING ` + patientSelectClause("p")
+
+	var out models.Patient
+	err := r.pool.QueryRow(ctx, q,
+		strings.TrimSpace(viewerUserRef),
+		nullableUUID(viewerUserUUID),
+		strings.TrimSpace(patient.PatientID),
+		strings.TrimSpace(patient.ABHAID),
+		strings.TrimSpace(patient.ABHANumber),
+		strings.TrimSpace(patient.ABHAAddress),
+		strings.TrimSpace(patient.FirstName),
+		strings.TrimSpace(patient.MiddleName),
+		strings.TrimSpace(patient.LastName),
+		strings.TrimSpace(patient.FullName),
+		strings.TrimSpace(patient.Gender),
+		strings.TrimSpace(patient.DateOfBirth),
+		nullIfZeroInt(patient.AgeYears),
+		strings.TrimSpace(patient.Phone),
+		strings.TrimSpace(patient.PhoneNumber),
+		strings.TrimSpace(patient.PhoneE164),
+		strings.TrimSpace(patient.Email),
+		strings.TrimSpace(patient.AddressLine1),
+		strings.TrimSpace(patient.AddressLine2),
+		strings.TrimSpace(patient.VillageOrWard),
+		strings.TrimSpace(patient.GramPanchayat),
+		strings.TrimSpace(patient.BlockOrTaluk),
+		strings.TrimSpace(patient.District),
+		strings.TrimSpace(patient.State),
+		strings.TrimSpace(patient.Pincode),
+		strings.TrimSpace(patient.Landmark),
+		defaultJSON(patient.ConsentFlags, "{}"),
+		strings.TrimSpace(patient.UpdatedBy),
+		strings.TrimSpace(patient.Status),
+		strings.TrimSpace(patient.PreferredLanguage),
+	).Scan(patientScanTargets(&out)...)
+	return out, err
+}
+
+func (r *PgxRepository) ListRecentPatientsByUser(ctx context.Context, viewerUserRef string, viewerUserUUID *string, limit int) ([]models.Patient, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	q := `
+SELECT ` + patientSelectClause("p") + `
+FROM patients p
+WHERE ` + patientVisibilityWhereClause() + `
+ORDER BY p.updated_at DESC
+LIMIT $3`
+
+	rows, err := r.pool.Query(ctx, q, strings.TrimSpace(viewerUserRef), nullableUUID(viewerUserUUID), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.Patient, 0, limit)
+	for rows.Next() {
+		var item models.Patient
+		if err := rows.Scan(patientScanTargets(&item)...); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *PgxRepository) CreateEncounter(ctx context.Context, encounter models.EncounterRecord) (models.EncounterRecord, error) {
 	q := `
 INSERT INTO encounters (
@@ -786,6 +1007,165 @@ func defaultJSON(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func nullIfZeroInt(v int) any {
+	if v <= 0 {
+		return nil
+	}
+	return v
+}
+
+func nullableUUID(v *string) any {
+	if v == nil {
+		return nil
+	}
+	if strings.TrimSpace(*v) == "" {
+		return nil
+	}
+	return *v
+}
+
+func patientVisibilityWhereClause() string {
+	return `(
+		p.created_by = $1
+		OR p.updated_by = $1
+		OR (
+			COALESCE(p.created_by, '') = ''
+			AND COALESCE(p.updated_by, '') = ''
+		)
+		OR (
+			$2::uuid IS NOT NULL
+			AND EXISTS (
+				SELECT 1
+				FROM patient_access pa
+				WHERE pa.patient_id = p.patient_id
+				  AND pa.user_id = $2::uuid
+				  AND pa.revoked_at IS NULL
+			)
+		)
+	)`
+}
+
+func patientSelectClause(tableAlias string) string {
+	prefix := ""
+	if strings.TrimSpace(tableAlias) != "" {
+		prefix = strings.TrimSpace(tableAlias) + "."
+	}
+	return fmt.Sprintf(`%spatient_id::text,
+		%sfhir_patient_id,
+		COALESCE(%sabha_id, ''),
+		COALESCE(%sabha_number, ''),
+		COALESCE(%sabha_address, ''),
+		COALESCE(%sfirst_name, ''),
+		COALESCE(%smiddle_name, ''),
+		COALESCE(%slast_name, ''),
+		COALESCE(%sfull_name, ''),
+		COALESCE(%sgender, ''),
+		COALESCE(%sdate_of_birth::text, ''),
+		COALESCE(%sage_years, 0),
+		COALESCE(%sphone, ''),
+		COALESCE(%sphone_number, ''),
+		COALESCE(%sphone_e164, ''),
+		COALESCE(%semail, ''),
+		COALESCE(%saddress_line1, ''),
+		COALESCE(%saddress_line2, ''),
+		COALESCE(%svillage_or_ward, ''),
+		COALESCE(%sgram_panchayat, ''),
+		COALESCE(%sblock_or_taluk, ''),
+		COALESCE(%sdistrict, ''),
+		COALESCE(%sstate, ''),
+		COALESCE(%spincode, ''),
+		COALESCE(%slandmark, ''),
+		COALESCE(%sconsent_flags::text, '{}'),
+		COALESCE(%screated_by, ''),
+		COALESCE(%supdated_by, ''),
+		COALESCE(%sstatus, ''),
+		COALESCE(%spreferred_language, ''),
+		COALESCE(%sprimary_clinic_id::text, ''),
+		COALESCE(%ssource_system, ''),
+		%sread_only,
+		COALESCE(%slast_synced_at, NOW()),
+		%screated_at,
+		%supdated_at`,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+		prefix,
+	)
+}
+
+func patientScanTargets(p *models.Patient) []any {
+	return []any{
+		&p.PatientID,
+		&p.FHIRPatientID,
+		&p.ABHAID,
+		&p.ABHANumber,
+		&p.ABHAAddress,
+		&p.FirstName,
+		&p.MiddleName,
+		&p.LastName,
+		&p.FullName,
+		&p.Gender,
+		&p.DateOfBirth,
+		&p.AgeYears,
+		&p.Phone,
+		&p.PhoneNumber,
+		&p.PhoneE164,
+		&p.Email,
+		&p.AddressLine1,
+		&p.AddressLine2,
+		&p.VillageOrWard,
+		&p.GramPanchayat,
+		&p.BlockOrTaluk,
+		&p.District,
+		&p.State,
+		&p.Pincode,
+		&p.Landmark,
+		&p.ConsentFlags,
+		&p.CreatedBy,
+		&p.UpdatedBy,
+		&p.Status,
+		&p.PreferredLanguage,
+		&p.PrimaryClinicID,
+		&p.SourceSystem,
+		&p.ReadOnly,
+		&p.LastSyncedAt,
+		&p.CreatedAt,
+		&p.UpdatedAt,
+	}
 }
 
 var _ Repository = (*PgxRepository)(nil)

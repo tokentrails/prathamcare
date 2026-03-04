@@ -191,6 +191,76 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> createPatient({
+    String? bearerToken,
+    required Map<String, dynamic> payload,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/patients'),
+      headers: _headers(token),
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> searchPatients({
+    String? bearerToken,
+    String? q,
+    String? phone,
+    String? abha,
+    int limit = 10,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final params = <String, String>{
+      'limit': '$limit',
+      if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
+      if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+      if (abha != null && abha.trim().isNotEmpty) 'abha': abha.trim(),
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/patients/search').replace(queryParameters: params);
+    final res = await _client.get(uri, headers: _headers(token));
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getPatientById({
+    String? bearerToken,
+    required String patientId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/patients/$patientId'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> updatePatient({
+    String? bearerToken,
+    required String patientId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.put(
+      Uri.parse('$baseUrl/api/v1/patients/$patientId'),
+      headers: _headers(token),
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getRecentPatients({
+    String? bearerToken,
+    int limit = 10,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/patients/recent?limit=$limit'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
   Map<String, String> _headers(String bearerToken) => {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $bearerToken',

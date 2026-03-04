@@ -41,13 +41,12 @@ class EncounterAiDetailsCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.lightSurface,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.lightBorder, width: 1.5),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x08000000),
-            blurRadius: 12,
+            color: Color(0x140F756D),
+            blurRadius: 16,
             offset: Offset(0, 4),
           ),
         ],
@@ -273,8 +272,15 @@ class EncounterAiDetailsCard extends StatelessWidget {
   Widget _buildSectionHeader(String title, IconData icon, Color iconColor) {
     return Row(
       children: [
-        Icon(icon, color: iconColor, size: 22),
-        const SizedBox(width: 10),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: iconColor, size: 20),
+        ),
+        const SizedBox(width: 12),
         Text(
           title,
           style: const TextStyle(
@@ -294,7 +300,6 @@ class EncounterAiDetailsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _severitySurfaceColor(severity),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _severityBorderColor(severity), width: 1.5),
       ),
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -476,23 +481,29 @@ class EncounterAiDetailsCard extends StatelessWidget {
   }
 
   Widget _vitalItem(String key, String value) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: AppColors.lightTextPrimary,
-            letterSpacing: -0.5,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.lightInputBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.lightBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: AppColors.lightTextPrimary,
+              letterSpacing: -0.5,
+            ),
           ),
-        ),
-        const SizedBox(width: 6),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 3),
-          child: Text(
+          const SizedBox(width: 6),
+          Text(
             _titleCase(key.replaceAll('_', ' ')),
             style: const TextStyle(
               fontSize: 13,
@@ -500,9 +511,8 @@ class EncounterAiDetailsCard extends StatelessWidget {
               color: AppColors.lightTextMuted,
             ),
           ),
-        ),
-        const SizedBox(width: 16),
-      ],
+        ],
+      ),
     );
   }
 
@@ -510,7 +520,7 @@ class EncounterAiDetailsCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.lightSurface2,
+        color: AppColors.lightInputBg,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: AppColors.lightBorder),
       ),
@@ -519,7 +529,7 @@ class EncounterAiDetailsCard extends StatelessWidget {
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.w600,
-          fontSize: 14,
+          fontSize: 13,
         ),
       ),
     );
@@ -584,20 +594,6 @@ class EncounterAiDetailsCard extends StatelessWidget {
         return AppColors.lightErrorSoft;
       default:
         return const Color(0xFFF8FAFC);
-    }
-  }
-
-  Color _severityBorderColor(String severity) {
-    switch (severity.trim().toLowerCase()) {
-      case 'low':
-        return const Color(0xFF86EFAC);
-      case 'moderate':
-        return const Color(0xFFFCD34D);
-      case 'high':
-      case 'critical':
-        return const Color(0xFFFCA5A5);
-      default:
-        return AppColors.lightBorder;
     }
   }
 

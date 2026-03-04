@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,6 +30,18 @@ type extractedEntities struct {
 	VisitType   string         `json:"visit_type,omitempty"`
 	Symptoms    []string       `json:"symptoms,omitempty"`
 	Vitals      map[string]any `json:"vitals,omitempty"`
+}
+
+type transcribeStartConfig struct {
+	Mode              string
+	RequestedLanguage string
+	LanguageOptions   []string
+}
+
+type transcriptResult struct {
+	Text                  string
+	DetectedLanguage      string
+	DetectedLanguageScore *float64
 }
 
 func (h *Handler) handleVoiceTranscribe(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
@@ -55,7 +68,10 @@ func (h *Handler) handleVoiceTranscribe(ctx context.Context, req events.APIGatew
 
 	requestID := strings.TrimSpace(req.RequestContext.RequestID)
 	startedAt := time.Now().UTC()
-	log.Printf("voice_transcribe_start request_id=%s sub=%s patient_id=%s object_key=%s", requestID, claims.Subject, in.PatientID, in.ObjectKey)
+	log.Printf(
+		"voice_transcribe_start request_id=%s sub=%s patient_id=%s object_key=%s requested_language=%s",
+		requestID, claims.Subject, in.PatientID, in.ObjectKey, strings.TrimSpace(in.Language),
+	)
 
 	startCtx, cancelStart := context.WithTimeout(ctx, 8*time.Second)
 	defer cancelStart()
@@ -124,7 +140,7 @@ func (h *Handler) handleVoiceTranscribe(ctx context.Context, req events.APIGatew
 		ASHAUserID:          ashaUserID,
 		S3Bucket:            h.cfg.S3VoiceBucket,
 		S3Key:               in.ObjectKey,
-		LanguageCode:        defaultString(in.Language, "en-IN"),
+		LanguageCode:        normalizeVoiceJobLanguage(in.Language),
 		Context:             defaultString(in.Context, "asha_home_visit"),
 		TranscriptionJobID:  transcriptionJobID,
 		ProcessingStatus:    "transcribing",
@@ -181,7 +197,7 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 		}
 	}
 
-	status, transcriptURL, failureReason, err := h.checkTranscribeJob(ctx, voiceJob.TranscriptionJobID)
+	status, transcriptURL, failureReason, detectedLanguage, detectedLanguageScore, err := h.checkTranscribeJob(ctx, voiceJob.TranscriptionJobID)
 	if err != nil {
 		return h.error(http.StatusBadGateway, "SERVICE_UNAVAILABLE", "failed to check transcription: "+err.Error())
 	}
@@ -192,22 +208,39 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 			"voice_job_id":      voiceJobID,
 			"transcription_job": voiceJob.TranscriptionJobID,
 			"processing_status": "transcribing",
+			"detected_language": detectedLanguage,
 		})
 	case "failed":
 		now := time.Now().UTC()
 		_ = h.deps.Aurora.UpdateVoiceJobStatus(ctx, voiceJobID, "failed", voiceJob.TranscriptionJobID, "TRANSCRIBE_FAILED", failureReason, &now)
-		return h.json(http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"voice_job_id":      voiceJobID,
 			"transcription_job": voiceJob.TranscriptionJobID,
 			"processing_status": "failed",
 			"error":             failureReason,
-		})
+			"detected_language": detectedLanguage,
+		}
+		if detectedLanguageScore != nil {
+			resp["detected_language_score"] = *detectedLanguageScore
+		}
+		return h.json(http.StatusOK, resp)
 	}
 
-	transcriptionText, err := fetchTranscriptText(ctx, transcriptURL)
+	transcript, err := fetchTranscriptResult(ctx, transcriptURL)
 	if err != nil {
 		return h.error(http.StatusBadGateway, "SERVICE_UNAVAILABLE", "failed to read transcript: "+err.Error())
 	}
+	transcriptionText := transcript.Text
+	if strings.TrimSpace(detectedLanguage) == "" {
+		detectedLanguage = strings.TrimSpace(transcript.DetectedLanguage)
+	}
+	if detectedLanguageScore == nil {
+		detectedLanguageScore = transcript.DetectedLanguageScore
+	}
+	log.Printf(
+		"voice_transcribe_detected voice_job_id=%s transcription_job_id=%s detected_language=%s detected_language_score=%v",
+		voiceJobID, voiceJob.TranscriptionJobID, detectedLanguage, detectedLanguageScore,
+	)
 	h.logAIDebug("transcribe_raw_text", transcriptionText)
 	if strings.TrimSpace(transcriptionText) == "" {
 		now := time.Now().UTC()
@@ -238,6 +271,7 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 	if v, ok := extracted["translation"].(string); ok && strings.TrimSpace(v) != "" {
 		translation = v
 	}
+	translation = ensureEnglishTranslation(transcriptionText, translation, detectedLanguage)
 	extracted = enrichExtractedEntities(transcriptionText, translation, extracted, alerts)
 	alerts = enrichClinicalAlerts(extracted, alerts)
 	medicalEntities := h.detectMedicalEntities(ctx, translation)
@@ -245,14 +279,18 @@ func (h *Handler) handleVoiceTranscribeStatus(ctx context.Context, req events.AP
 	_ = h.deps.Aurora.UpdateVoiceJobStatus(ctx, voiceJobID, "completed", voiceJob.TranscriptionJobID, "", "", &now)
 
 	resp := map[string]any{
-		"voice_job_id":      voiceJobID,
-		"transcription_job": voiceJob.TranscriptionJobID,
-		"processing_status": "completed",
-		"transcription":     transcriptionText,
-		"translation":       translation,
+		"voice_job_id":        voiceJobID,
+		"transcription_job":   voiceJob.TranscriptionJobID,
+		"processing_status":   "completed",
+		"transcription":       transcriptionText,
+		"translation":         translation,
+		"detected_language":   detectedLanguage,
 		"extracted_entities": extracted,
-		"clinical_alerts":   alerts,
-		"medical_entities":  medicalEntities,
+		"clinical_alerts":     alerts,
+		"medical_entities":    medicalEntities,
+	}
+	if detectedLanguageScore != nil {
+		resp["detected_language_score"] = *detectedLanguageScore
 	}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
@@ -267,7 +305,7 @@ func (h *Handler) handleVoiceTranscribeJobStatus(ctx context.Context, req events
 
 	checkCtx, cancelCheck := context.WithTimeout(ctx, 8*time.Second)
 	defer cancelCheck()
-	status, transcriptURL, failureReason, err := h.checkTranscribeJob(checkCtx, transcriptionJobID)
+	status, transcriptURL, failureReason, detectedLanguage, detectedLanguageScore, err := h.checkTranscribeJob(checkCtx, transcriptionJobID)
 	if err != nil {
 		return h.error(http.StatusBadGateway, "SERVICE_UNAVAILABLE", "failed to check transcription: "+err.Error())
 	}
@@ -278,20 +316,37 @@ func (h *Handler) handleVoiceTranscribeJobStatus(ctx context.Context, req events
 			"voice_job_id":      "",
 			"transcription_job": transcriptionJobID,
 			"processing_status": "transcribing",
+			"detected_language": detectedLanguage,
 		})
 	case "failed":
-		return h.json(http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"voice_job_id":      "",
 			"transcription_job": transcriptionJobID,
 			"processing_status": "failed",
 			"error":             failureReason,
-		})
+			"detected_language": detectedLanguage,
+		}
+		if detectedLanguageScore != nil {
+			resp["detected_language_score"] = *detectedLanguageScore
+		}
+		return h.json(http.StatusOK, resp)
 	}
 
-	transcriptionText, err := fetchTranscriptText(ctx, transcriptURL)
+	transcript, err := fetchTranscriptResult(ctx, transcriptURL)
 	if err != nil {
 		return h.error(http.StatusBadGateway, "SERVICE_UNAVAILABLE", "failed to read transcript: "+err.Error())
 	}
+	transcriptionText := transcript.Text
+	if strings.TrimSpace(detectedLanguage) == "" {
+		detectedLanguage = strings.TrimSpace(transcript.DetectedLanguage)
+	}
+	if detectedLanguageScore == nil {
+		detectedLanguageScore = transcript.DetectedLanguageScore
+	}
+	log.Printf(
+		"voice_transcribe_detected transcription_job_id=%s detected_language=%s detected_language_score=%v",
+		transcriptionJobID, detectedLanguage, detectedLanguageScore,
+	)
 	h.logAIDebug("transcribe_raw_text", transcriptionText)
 	if strings.TrimSpace(transcriptionText) == "" {
 		return h.json(http.StatusOK, map[string]any{
@@ -320,19 +375,24 @@ func (h *Handler) handleVoiceTranscribeJobStatus(ctx context.Context, req events
 	if v, ok := extracted["translation"].(string); ok && strings.TrimSpace(v) != "" {
 		translation = v
 	}
+	translation = ensureEnglishTranslation(transcriptionText, translation, detectedLanguage)
 	extracted = enrichExtractedEntities(transcriptionText, translation, extracted, alerts)
 	alerts = enrichClinicalAlerts(extracted, alerts)
 	medicalEntities := h.detectMedicalEntities(ctx, translation)
 
 	resp := map[string]any{
-		"voice_job_id":       "",
-		"transcription_job":  transcriptionJobID,
-		"processing_status":  "completed",
-		"transcription":      transcriptionText,
-		"translation":        translation,
+		"voice_job_id":         "",
+		"transcription_job":    transcriptionJobID,
+		"processing_status":    "completed",
+		"transcription":        transcriptionText,
+		"translation":          translation,
+		"detected_language":    detectedLanguage,
 		"extracted_entities": extracted,
-		"clinical_alerts":    alerts,
-		"medical_entities":   medicalEntities,
+		"clinical_alerts":      alerts,
+		"medical_entities":     medicalEntities,
+	}
+	if detectedLanguageScore != nil {
+		resp["detected_language_score"] = *detectedLanguageScore
 	}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
@@ -573,7 +633,7 @@ func (h *Handler) enqueueVoiceJobFallback(ctx context.Context, userID, patientID
 	payload := map[string]any{
 		"transcription_job": transcriptionJobID,
 		"object_key":        objectKey,
-		"language":          defaultString(language, "en-IN"),
+		"language":          normalizeVoiceJobLanguage(language),
 		"context":           defaultString(visitContext, "asha_home_visit"),
 	}
 	payloadJSON, _ := json.Marshal(payload)
@@ -1016,61 +1076,53 @@ func (h *Handler) startTranscribeJob(ctx context.Context, objectKey, requestedLa
 	client := transcribe.NewFromConfig(awsCfg)
 
 	jobName := "pc-" + strings.ReplaceAll(newID(), "-", "")
-	input := &transcribe.StartTranscriptionJobInput{
-		TranscriptionJobName: &jobName,
-		Media: &transcribetypes.Media{
-			MediaFileUri: stringPtr(fmt.Sprintf("s3://%s/%s", h.cfg.S3VoiceBucket, objectKey)),
-		},
-	}
-
-	lang := strings.TrimSpace(requestedLanguage)
-	if lang != "" {
-		input.LanguageCode = transcribetypes.LanguageCode(lang)
-	} else {
-		input.IdentifyLanguage = boolPtr(true)
-		if len(h.cfg.TranscribeLanguages) > 0 {
-			opts := make([]transcribetypes.LanguageCode, 0, len(h.cfg.TranscribeLanguages))
-			for _, code := range h.cfg.TranscribeLanguages {
-				opts = append(opts, transcribetypes.LanguageCode(strings.TrimSpace(code)))
-			}
-			input.LanguageOptions = opts
-		}
-	}
+	input, cfg := buildTranscribeStartInput(h.cfg.S3VoiceBucket, objectKey, jobName, requestedLanguage, h.cfg.TranscribeLanguages)
+	log.Printf(
+		"voice_transcribe_start_job mode=%s requested_language=%s language_options=%s object_key=%s",
+		cfg.Mode, cfg.RequestedLanguage, strings.Join(cfg.LanguageOptions, ","), objectKey,
+	)
 	if _, err := client.StartTranscriptionJob(ctx, input); err != nil {
 		return "", err
 	}
 	return jobName, nil
 }
 
-func (h *Handler) checkTranscribeJob(ctx context.Context, transcriptionJobID string) (status string, transcriptURL string, failureReason string, err error) {
+func (h *Handler) checkTranscribeJob(ctx context.Context, transcriptionJobID string) (status string, transcriptURL string, failureReason string, detectedLanguage string, detectedLanguageScore *float64, err error) {
 	region := defaultString(h.cfg.AWSRegion, "ap-south-1")
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", nil, err
 	}
 	client := transcribe.NewFromConfig(awsCfg)
 	out, err := client.GetTranscriptionJob(ctx, &transcribe.GetTranscriptionJobInput{
 		TranscriptionJobName: stringPtr(transcriptionJobID),
 	})
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", nil, err
 	}
 	if out.TranscriptionJob == nil {
-		return "in_progress", "", "", nil
+		return "in_progress", "", "", "", nil, nil
+	}
+	if out.TranscriptionJob.LanguageCode != "" {
+		detectedLanguage = string(out.TranscriptionJob.LanguageCode)
+	}
+	if out.TranscriptionJob.IdentifiedLanguageScore != nil {
+		score := float64(*out.TranscriptionJob.IdentifiedLanguageScore)
+		detectedLanguageScore = &score
 	}
 	switch out.TranscriptionJob.TranscriptionJobStatus {
 	case transcribetypes.TranscriptionJobStatusCompleted:
 		if out.TranscriptionJob.Transcript == nil || out.TranscriptionJob.Transcript.TranscriptFileUri == nil {
-			return "failed", "", "transcript file uri missing", nil
+			return "failed", "", "transcript file uri missing", detectedLanguage, detectedLanguageScore, nil
 		}
-		return "completed", *out.TranscriptionJob.Transcript.TranscriptFileUri, "", nil
+		return "completed", *out.TranscriptionJob.Transcript.TranscriptFileUri, "", detectedLanguage, detectedLanguageScore, nil
 	case transcribetypes.TranscriptionJobStatusFailed:
 		if out.TranscriptionJob.FailureReason != nil {
-			return "failed", "", *out.TranscriptionJob.FailureReason, nil
+			return "failed", "", *out.TranscriptionJob.FailureReason, detectedLanguage, detectedLanguageScore, nil
 		}
-		return "failed", "", "transcribe failed", nil
+		return "failed", "", "transcribe failed", detectedLanguage, detectedLanguageScore, nil
 	default:
-		return "in_progress", "", "", nil
+		return "in_progress", "", "", detectedLanguage, detectedLanguageScore, nil
 	}
 }
 
@@ -1086,26 +1138,11 @@ func (h *Handler) runTranscribeJob(ctx context.Context, objectKey, requestedLang
 	client := transcribe.NewFromConfig(awsCfg)
 
 	jobName := "pc-" + strings.ReplaceAll(newID(), "-", "")
-	input := &transcribe.StartTranscriptionJobInput{
-		TranscriptionJobName: &jobName,
-		Media: &transcribetypes.Media{
-			MediaFileUri: stringPtr(fmt.Sprintf("s3://%s/%s", h.cfg.S3VoiceBucket, objectKey)),
-		},
-	}
-
-	lang := strings.TrimSpace(requestedLanguage)
-	if lang != "" {
-		input.LanguageCode = transcribetypes.LanguageCode(lang)
-	} else {
-		input.IdentifyLanguage = boolPtr(true)
-		if len(h.cfg.TranscribeLanguages) > 0 {
-			opts := make([]transcribetypes.LanguageCode, 0, len(h.cfg.TranscribeLanguages))
-			for _, code := range h.cfg.TranscribeLanguages {
-				opts = append(opts, transcribetypes.LanguageCode(strings.TrimSpace(code)))
-			}
-			input.LanguageOptions = opts
-		}
-	}
+	input, cfg := buildTranscribeStartInput(h.cfg.S3VoiceBucket, objectKey, jobName, requestedLanguage, h.cfg.TranscribeLanguages)
+	log.Printf(
+		"voice_transcribe_run_job mode=%s requested_language=%s language_options=%s object_key=%s",
+		cfg.Mode, cfg.RequestedLanguage, strings.Join(cfg.LanguageOptions, ","), objectKey,
+	)
 
 	if _, err := client.StartTranscriptionJob(ctx, input); err != nil {
 		return "", jobName, err
@@ -1142,8 +1179,8 @@ func (h *Handler) runTranscribeJob(ctx context.Context, objectKey, requestedLang
 			if uri == "" {
 				return "", jobName, fmt.Errorf("transcript file uri missing")
 			}
-			text, err := fetchTranscriptText(waitCtx, uri)
-			return text, jobName, err
+			result, err := fetchTranscriptResult(waitCtx, uri)
+			return result.Text, jobName, err
 		case transcribetypes.TranscriptionJobStatusFailed:
 			reason := "transcribe failed"
 			if out.TranscriptionJob.FailureReason != nil {
@@ -1365,25 +1402,153 @@ func (h *Handler) createFHIREncounter(ctx context.Context, fhirPatientID, visitT
 	return id, "synced", nil
 }
 
-func fetchTranscriptText(ctx context.Context, transcriptURL string) (string, error) {
+func buildTranscribeStartInput(bucket, objectKey, jobName, requestedLanguage string, cfgLanguageOptions []string) (*transcribe.StartTranscriptionJobInput, transcribeStartConfig) {
+	mediaURI := fmt.Sprintf("s3://%s/%s", bucket, objectKey)
+	input := &transcribe.StartTranscriptionJobInput{
+		TranscriptionJobName: &jobName,
+		Media: &transcribetypes.Media{
+			MediaFileUri: stringPtr(mediaURI),
+		},
+	}
+	if mediaFormat := detectTranscribeMediaFormat(objectKey); mediaFormat != "" {
+		input.MediaFormat = mediaFormat
+	}
+
+	requested := strings.TrimSpace(requestedLanguage)
+	normalized := normalizeTranscribeLanguage(requested)
+	if normalized != "" {
+		input.LanguageCode = transcribetypes.LanguageCode(normalized)
+		return input, transcribeStartConfig{
+			Mode:              "explicit",
+			RequestedLanguage: requested,
+			LanguageOptions:   []string{normalized},
+		}
+	}
+
+	options := sanitizeTranscribeLanguageOptions(cfgLanguageOptions)
+	input.IdentifyLanguage = boolPtr(true)
+	input.LanguageOptions = make([]transcribetypes.LanguageCode, 0, len(options))
+	for _, opt := range options {
+		input.LanguageOptions = append(input.LanguageOptions, transcribetypes.LanguageCode(opt))
+	}
+	return input, transcribeStartConfig{
+		Mode:              "identify",
+		RequestedLanguage: requested,
+		LanguageOptions:   options,
+	}
+}
+
+func sanitizeTranscribeLanguageOptions(cfgOptions []string) []string {
+	allowed := map[string]struct{}{
+		"en-IN": {},
+		"kn-IN": {},
+	}
+	out := make([]string, 0, 2)
+	seen := map[string]struct{}{}
+	for _, raw := range cfgOptions {
+		s := strings.TrimSpace(raw)
+		if _, ok := allowed[s]; !ok {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return []string{"en-IN", "kn-IN"}
+	}
+	return out
+}
+
+func normalizeTranscribeLanguage(language string) string {
+	switch strings.TrimSpace(language) {
+	case "en-IN":
+		return "en-IN"
+	case "kn-IN":
+		return "kn-IN"
+	default:
+		return ""
+	}
+}
+
+func normalizeVoiceJobLanguage(language string) string {
+	if normalized := normalizeTranscribeLanguage(language); normalized != "" {
+		return normalized
+	}
+	if strings.TrimSpace(language) == "" {
+		return "auto"
+	}
+	return "auto"
+}
+
+func ensureEnglishTranslation(transcription, translation, detectedLanguage string) string {
+	trimmedTranslation := strings.TrimSpace(translation)
+	if trimmedTranslation == "" {
+		if strings.EqualFold(strings.TrimSpace(detectedLanguage), "en-IN") {
+			return strings.TrimSpace(transcription)
+		}
+		return "Translation unavailable. Please review the original transcription."
+	}
+
+	trimmedTranscription := strings.TrimSpace(transcription)
+	if !strings.EqualFold(strings.TrimSpace(detectedLanguage), "en-IN") &&
+		trimmedTranscription != "" &&
+		strings.EqualFold(trimmedTranslation, trimmedTranscription) {
+		return "Translation unavailable. Please review the original transcription."
+	}
+	return trimmedTranslation
+}
+
+func detectTranscribeMediaFormat(objectKey string) transcribetypes.MediaFormat {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(objectKey)))
+	switch ext {
+	case ".wav":
+		return transcribetypes.MediaFormat("wav")
+	case ".flac":
+		return transcribetypes.MediaFormat("flac")
+	case ".mp3":
+		return transcribetypes.MediaFormat("mp3")
+	case ".m4a":
+		return transcribetypes.MediaFormat("mp4")
+	case ".mp4":
+		return transcribetypes.MediaFormat("mp4")
+	case ".ogg":
+		return transcribetypes.MediaFormat("ogg")
+	case ".webm":
+		return transcribetypes.MediaFormat("webm")
+	case ".amr":
+		return transcribetypes.MediaFormat("amr")
+	default:
+		return ""
+	}
+}
+
+func fetchTranscriptResult(ctx context.Context, transcriptURL string) (transcriptResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, transcriptURL, nil)
 	if err != nil {
-		return "", err
+		return transcriptResult{}, err
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return transcriptResult{}, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
-		return "", fmt.Errorf("transcript fetch failed with status %d", res.StatusCode)
+		return transcriptResult{}, fmt.Errorf("transcript fetch failed with status %d", res.StatusCode)
 	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return "", err
+		return transcriptResult{}, err
 	}
 	var parsed struct {
 		Results struct {
+			LanguageCode string `json:"language_code"`
+			LanguageIdentification []struct {
+				LanguageCode string  `json:"language_code"`
+				Score        float64 `json:"score"`
+			} `json:"language_identification"`
 			Transcripts []struct {
 				Transcript string `json:"transcript"`
 			} `json:"transcripts"`
@@ -1396,17 +1561,39 @@ func fetchTranscriptText(ctx context.Context, transcriptURL string) (string, err
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", err
+		return transcriptResult{}, err
 	}
 	itemsTranscript := rebuildTranscriptFromItems(parsed.Results.Items)
+	result := transcriptResult{
+		DetectedLanguage: strings.TrimSpace(parsed.Results.LanguageCode),
+	}
+	if len(parsed.Results.LanguageIdentification) > 0 {
+		bestScore := -1.0
+		bestCode := result.DetectedLanguage
+		for _, item := range parsed.Results.LanguageIdentification {
+			if item.Score > bestScore {
+				bestScore = item.Score
+				bestCode = strings.TrimSpace(item.LanguageCode)
+			}
+		}
+		if bestScore >= 0 {
+			score := bestScore
+			result.DetectedLanguageScore = &score
+		}
+		if strings.TrimSpace(bestCode) != "" {
+			result.DetectedLanguage = bestCode
+		}
+	}
 
 	// Priority:
 	// 1) token-level rebuild from items
 	// 2) fallback to longest transcripts[] string
 	if itemsTranscript != "" {
-		return itemsTranscript, nil
+		result.Text = itemsTranscript
+		return result, nil
 	}
-	return longestTranscript(parsed.Results.Transcripts), nil
+	result.Text = longestTranscript(parsed.Results.Transcripts)
+	return result, nil
 }
 
 func longestTranscript(transcripts []struct {

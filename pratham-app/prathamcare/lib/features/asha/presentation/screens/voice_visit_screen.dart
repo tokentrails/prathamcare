@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_pill_button.dart';
+import '../../../../core/widgets/app_select_field.dart';
 import '../../../../data/network/api_client.dart';
 import '../widgets/encounter_ai_details_card.dart';
 import '../widgets/patient_form_section.dart';
@@ -27,6 +28,21 @@ class VoiceVisitScreen extends StatefulWidget {
 }
 
 class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
+  static const List<AppSelectOption<String>> _languageOptions = [
+    AppSelectOption<String>(
+      label: 'Auto (English/Kannada)',
+      value: '',
+    ),
+    AppSelectOption<String>(
+      label: 'English (en-IN)',
+      value: 'en-IN',
+    ),
+    AppSelectOption<String>(
+      label: 'Kannada (kn-IN)',
+      value: 'kn-IN',
+    ),
+  ];
+
   final ApiClient _apiClient = ApiClient();
   final AudioRecorder _audioRecorder = AudioRecorder();
   final TextEditingController _patientSearchController = TextEditingController();
@@ -48,8 +64,10 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   List<Map<String, dynamic>> _searchResults = const [];
   List<Map<String, dynamic>> _recentPatients = const [];
   String? _processingStatus;
+  String? _detectedLanguage;
   String? _error;
   String? _patientError;
+  String _selectedTranscriptionLanguage = '';
   Timer? _searchDebounce;
 
   @override
@@ -244,6 +262,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       _voiceJobId = null;
       _transcriptionJobId = null;
       _processingStatus = null;
+      _detectedLanguage = null;
       _error = null;
     });
   }
@@ -277,6 +296,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
           _voiceJobId = null;
           _transcriptionJobId = null;
           _processingStatus = null;
+          _detectedLanguage = null;
           _selectedAudio = PlatformFile(
             name: 'recorded_visit.$_recordingExtension',
             size: bytes.length,
@@ -360,6 +380,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       _voiceJobId = null;
       _transcriptionJobId = null;
       _processingStatus = 'uploading';
+      _detectedLanguage = null;
     });
 
     try {
@@ -369,7 +390,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         fileSizeBytes: _selectedAudioBytes!.lengthInBytes,
         context: 'asha_home_visit',
         patientId: selectedPatientId,
-        language: '',
+        language: _selectedTranscriptionLanguage,
       );
 
       final uploadUrl = '${presign['upload_url'] ?? ''}';
@@ -386,7 +407,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
 
       final transcribed = await _apiClient.transcribeVoice(
         objectKey: _objectKey!,
-        language: '',
+        language: _selectedTranscriptionLanguage,
         context: 'asha_home_visit',
         patientId: selectedPatientId,
       );
@@ -439,6 +460,9 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
 
       setState(() {
         _processingStatus = status;
+        _detectedLanguage = '${statusRes['detected_language'] ?? ''}'.trim().isEmpty
+            ? _detectedLanguage
+            : '${statusRes['detected_language'] ?? ''}'.trim();
       });
 
       if (status == 'completed') {
@@ -562,7 +586,9 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
                 SizedBox(
                   height: 50,
                   child: AppPillButton(
-                    onPressed: (!patientSelected || _loading || _patientResolving) ? null : _runAiExtract,
+                    onPressed: (!patientSelected || _loading || _patientResolving || _transcribeResponse != null)
+                        ? null
+                        : _runAiExtract,
                     icon: Icons.auto_awesome_rounded,
                     label: _loading ? 'Processing...' : 'Process Encounter With AI',
                     variant: AppPillButtonVariant.primary,
@@ -619,23 +645,49 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(
-            height: 18,
-            width: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+          Row(
+            children: [
+              const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '$label... ${_voiceJobId ?? ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '$label... ${_voiceJobId ?? ''}',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          const SizedBox(height: 8),
+          Text(
+            'Language: ${_selectedLanguageLabel()}',
+            style: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 12),
+          ),
+          if (_detectedLanguage != null && _detectedLanguage!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Detected: $_detectedLanguage',
+              style: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 12),
             ),
-          ),
+          ],
         ],
       ),
     );
+  }
+
+  String _selectedLanguageLabel() {
+    for (final option in _languageOptions) {
+      if (option.value == _selectedTranscriptionLanguage) {
+        return option.label;
+      }
+    }
+    return _languageOptions.first.label;
   }
 
   Widget _buildPatientSelectorCard() {
@@ -767,98 +819,121 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
           BoxShadow(color: Color(0x140F756D), blurRadius: 16, offset: Offset(0, 4)),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Encounter Audio',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.lightTextPrimary),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _recording
-                      ? 'Recording in progress...'
-                      : _selectedAudio != null
-                          ? '${_selectedAudio!.name} (${(_selectedAudio!.size / 1024).toStringAsFixed(1)} KB)'
-                          : 'Record or upload audio',
-                  style: TextStyle(
-                    color: _recording ? AppColors.lightError : AppColors.lightTextSecondary,
-                    fontSize: 13,
-                    fontWeight: _recording ? FontWeight.w600 : FontWeight.w400,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
           Row(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              InkWell(
-                onTap: _toggleRecording,
-                borderRadius: BorderRadius.circular(999),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _recording ? AppColors.lightErrorSoft : const Color(0x1A0F756D),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _recording ? Icons.stop_rounded : Icons.mic_none_rounded,
-                    color: _recording ? AppColors.lightError : AppColors.primary,
-                    size: 24,
-                  ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Encounter Audio',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.lightTextPrimary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _recording
+                          ? 'Recording in progress...'
+                          : _selectedAudio != null
+                              ? '${_selectedAudio!.name} (${(_selectedAudio!.size / 1024).toStringAsFixed(1)} KB)'
+                              : 'Record or upload audio',
+                      style: TextStyle(
+                        color: _recording ? AppColors.lightError : AppColors.lightTextSecondary,
+                        fontSize: 13,
+                        fontWeight: _recording ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              InkWell(
-                onTap: _pickAudioFile,
-                borderRadius: BorderRadius.circular(999),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _selectedAudio == null ? AppColors.lightInputBg : const Color(0x1A0F756D),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _selectedAudio == null ? AppColors.lightBorder : Colors.transparent,
+              const SizedBox(width: 12),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: _toggleRecording,
+                    borderRadius: BorderRadius.circular(999),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _recording ? AppColors.lightErrorSoft : const Color(0x1A0F756D),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _recording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                        color: _recording ? AppColors.lightError : AppColors.primary,
+                        size: 24,
+                      ),
                     ),
                   ),
-                  child: Icon(
-                    Icons.upload_file_rounded,
-                    color: _selectedAudio == null ? AppColors.lightTextSecondary : AppColors.primary,
-                    size: 24,
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _pickAudioFile,
+                    borderRadius: BorderRadius.circular(999),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _selectedAudio == null ? AppColors.lightInputBg : const Color(0x1A0F756D),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _selectedAudio == null ? AppColors.lightBorder : Colors.transparent,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.upload_file_rounded,
+                        color: _selectedAudio == null ? AppColors.lightTextSecondary : AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
                   ),
-                ),
+                  if (_selectedAudio != null) ...[
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedAudio = null;
+                          _selectedAudioBytes = null;
+                          _transcribeResponse = null;
+                          _voiceJobId = null;
+                          _transcriptionJobId = null;
+                          _processingStatus = null;
+                          _detectedLanguage = null;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: const BoxDecoration(
+                          color: AppColors.lightErrorSoft,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppColors.lightError,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              if (_selectedAudio != null) ...[
-                const SizedBox(width: 8),
-                InkWell(
-                  onTap: () {
-                    setState(() {
-                      _selectedAudio = null;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(999),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: const BoxDecoration(
-                      color: AppColors.lightErrorSoft,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.delete_outline_rounded,
-                      color: AppColors.lightError,
-                      size: 24,
-                    ),
-                  ),
-                ),
-              ],
             ],
+          ),
+          const SizedBox(height: 18),
+          AppSelectField<String>(
+            label: 'Transcription Language',
+            value: _selectedTranscriptionLanguage,
+            options: _languageOptions,
+            enabled: !_loading && !_recording,
+            onChanged: (value) {
+              setState(() {
+                _selectedTranscriptionLanguage = value;
+              });
+            },
           ),
         ],
       ),

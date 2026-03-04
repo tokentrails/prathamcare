@@ -139,11 +139,6 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
                   'Good Morning',
                   style: TextStyle(color: AppColors.lightTextMuted, fontSize: 13, fontWeight: FontWeight.w600),
                 ),
-                SizedBox(height: 2),
-                Text(
-                  'ASHA Operations Dashboard',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-                ),
               ],
             ),
           ),
@@ -311,26 +306,51 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
             style: TextStyle(color: Color(0xFFE2FFFB), fontSize: 13.5, height: 1.35),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: AppPillButton(
-                  onPressed: _openCreateEncounter,
-                  icon: Icons.add_rounded,
-                  label: 'Create Encounter',
-                  variant: AppPillButtonVariant.light,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: AppPillButton(
-                  onPressed: () => _openJobs(ASHAJobsView.overview),
-                  icon: Icons.work_outline_rounded,
-                  label: 'Open Jobs',
-                  variant: AppPillButtonVariant.dark,
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stackActions = constraints.maxWidth < 480;
+              if (stackActions) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AppPillButton(
+                      onPressed: _openCreateEncounter,
+                      icon: Icons.add_rounded,
+                      label: 'Create Encounter',
+                      variant: AppPillButtonVariant.light,
+                    ),
+                    const SizedBox(height: 10),
+                    AppPillButton(
+                      onPressed: () => _openJobs(ASHAJobsView.overview),
+                      icon: Icons.work_outline_rounded,
+                      label: 'Open Jobs',
+                      variant: AppPillButtonVariant.dark,
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(
+                    child: AppPillButton(
+                      onPressed: _openCreateEncounter,
+                      icon: Icons.add_rounded,
+                      label: 'Create Encounter',
+                      variant: AppPillButtonVariant.light,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: AppPillButton(
+                      onPressed: () => _openJobs(ASHAJobsView.overview),
+                      icon: Icons.work_outline_rounded,
+                      label: 'Open Jobs',
+                      variant: AppPillButtonVariant.dark,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),

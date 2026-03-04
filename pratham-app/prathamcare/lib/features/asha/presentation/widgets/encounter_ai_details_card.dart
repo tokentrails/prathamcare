@@ -38,6 +38,9 @@ class EncounterAiDetailsCard extends StatelessWidget {
     final referralUrgency = '${extracted['referral_urgency'] ?? 'routine'}'.trim();
     final translation = '${data['translation'] ?? ''}'.trim();
     final transcription = '${data['transcription'] ?? ''}'.trim();
+    final detectedLanguage = '${data['detected_language'] ?? ''}'.trim();
+    final detectedLanguageScoreRaw = data['detected_language_score'];
+    final detectedLanguageScore = detectedLanguageScoreRaw is num ? detectedLanguageScoreRaw.toDouble() : null;
 
     return Container(
       decoration: BoxDecoration(
@@ -76,6 +79,15 @@ class EncounterAiDetailsCard extends StatelessWidget {
                 if (transcription.isNotEmpty || translation.isNotEmpty) ...[
                   _buildSectionHeader('Conversation', Icons.forum_rounded, AppColors.accent),
                   const SizedBox(height: 12),
+                  if (detectedLanguage.isNotEmpty) ...[
+                    _textBlockWithLabel(
+                      'Detected Language',
+                      detectedLanguageScore == null
+                          ? detectedLanguage
+                          : '$detectedLanguage (${(detectedLanguageScore * 100).toStringAsFixed(1)}%)',
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   _textBlockWithLabel('Transcription', transcription),
                   const SizedBox(height: 16),
                   _textBlockWithLabel('Translation (English)', translation),

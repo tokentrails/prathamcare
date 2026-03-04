@@ -199,7 +199,7 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 			RecordingID:      recordingID,
 			PatientID:        in.PatientID,
 			RecordedByUserID: claims.Subject,
-			LanguageCode:     defaultString(in.Language, "en-IN"),
+			LanguageCode:     normalizeVoiceJobLanguage(in.Language),
 			S3Bucket:         h.cfg.S3VoiceBucket,
 			S3Key:            objectKey,
 			CreatedAt:        time.Now().UTC(),

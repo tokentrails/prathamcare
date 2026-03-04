@@ -251,7 +251,7 @@ This plan assumes the current scaffold is in place (Lambda entrypoint, core mode
   - Encounter save to operational store + HealthLake.
   - Offline queue with retry when network is unavailable.
 - Out-of-scope (defer):
-  - Full multilingual translation for all languages (start with `hi-IN` + `en-IN`).
+  - Full multilingual translation for all languages (start with `kn-IN` + `en-IN`).
   - Advanced physician notification fan-out.
   - Complex conflict resolution UI.
 
@@ -276,7 +276,7 @@ This plan assumes the current scaffold is in place (Lambda entrypoint, core mode
   - Request: `{ "content_type": "audio/wav", "file_size_bytes": 1234567, "context": "asha_home_visit" }`
   - Response: `{ "upload_url": "...", "object_key": "voice/...", "expires_in": 900 }`
 - `POST /api/v1/voice/transcribe`
-  - Request: `{ "object_key": "voice/...", "language": "hi-IN", "context": "asha_home_visit", "patient_id": "uuid-..." }`
+  - Request: `{ "object_key": "voice/...", "language": "", "context": "asha_home_visit", "patient_id": "uuid-..." }`
   - Response: `{ "transcription": "...", "extracted_entities": {...}, "clinical_alerts": [...], "confidence": 0.0 }`
 - `POST /api/v1/encounters`
   - Request: validated structured encounter payload from review screen

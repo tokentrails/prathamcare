@@ -42,3 +42,9 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Required for R8 when transitive crypto/tink classes reference annotation types.
+    implementation("com.google.errorprone:error_prone_annotations:2.28.0")
+    implementation("com.google.code.findbugs:jsr305:3.0.2")
+}

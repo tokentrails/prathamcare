@@ -231,6 +231,28 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 		return h.handleVoiceTranscribeStatus(ctx, req, voiceJobID)
 	case method == http.MethodPost && path == "/api/v1/encounters":
 		return h.handleEncounterCreate(ctx, req)
+	case method == http.MethodPost && path == "/api/v1/admin/doctors":
+		return h.handleAdminDoctorCreate(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/admin/doctors":
+		return h.handleAdminDoctorList(ctx, req)
+	case method == http.MethodPatch && strings.HasPrefix(path, "/api/v1/admin/doctors/") && strings.HasSuffix(path, "/status"):
+		doctorID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/admin/doctors/"), "/status")
+		if strings.TrimSpace(doctorID) == "" {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleAdminDoctorStatusUpdate(ctx, req, doctorID)
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/v1/admin/doctors/"):
+		doctorID := strings.TrimPrefix(path, "/api/v1/admin/doctors/")
+		if strings.TrimSpace(doctorID) == "" {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleAdminDoctorGet(ctx, req, doctorID)
+	case method == http.MethodPut && strings.HasPrefix(path, "/api/v1/admin/doctors/"):
+		doctorID := strings.TrimPrefix(path, "/api/v1/admin/doctors/")
+		if strings.TrimSpace(doctorID) == "" {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleAdminDoctorUpdate(ctx, req, doctorID)
 	case method == http.MethodPost && path == "/api/v1/patients":
 		return h.handlePatientCreate(ctx, req)
 	case method == http.MethodGet && path == "/api/v1/patients/search":

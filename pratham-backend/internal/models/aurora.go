@@ -54,6 +54,47 @@ type DoctorProfile struct {
 	UpdatedAt              time.Time `json:"updated_at"`
 }
 
+type Doctor struct {
+	DoctorID            string    `json:"doctor_id"`
+	CognitoSub          string    `json:"cognito_sub,omitempty"`
+	FirstName           string    `json:"first_name"`
+	MiddleName          string    `json:"middle_name,omitempty"`
+	LastName            string    `json:"last_name,omitempty"`
+	FullName            string    `json:"full_name"`
+	Email               string    `json:"email"`
+	PhoneNumber         string    `json:"phone_number"`
+	Gender              string    `json:"gender,omitempty"`
+	DateOfBirth         string    `json:"date_of_birth,omitempty"`
+	RegistrationNumber  string    `json:"registration_number"`
+	Specialization      string    `json:"specialization"`
+	Qualifications      string    `json:"qualifications,omitempty"`
+	YearsExperience     int       `json:"years_experience,omitempty"`
+	LanguagesSpoken     []string  `json:"languages_spoken,omitempty"`
+	ClinicName          string    `json:"clinic_name,omitempty"`
+	AddressLine1        string    `json:"address_line1,omitempty"`
+	AddressLine2        string    `json:"address_line2,omitempty"`
+	City                string    `json:"city,omitempty"`
+	District            string    `json:"district,omitempty"`
+	State               string    `json:"state,omitempty"`
+	Pincode             string    `json:"pincode,omitempty"`
+	ConsultationInPerson bool     `json:"consultation_in_person"`
+	ConsultationTelemedicine bool `json:"consultation_telemedicine"`
+	AvailabilitySummary string    `json:"availability_summary,omitempty"`
+	IsActive            bool      `json:"is_active"`
+	CreatedBy           string    `json:"created_by,omitempty"`
+	UpdatedBy           string    `json:"updated_by,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+type DoctorListFilter struct {
+	Query          string `json:"query,omitempty"`
+	Specialization string `json:"specialization,omitempty"`
+	Active         *bool  `json:"active,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	Offset         int    `json:"offset,omitempty"`
+}
+
 type ASHAProfile struct {
 	UserID            string    `json:"user_id"`
 	ASHACode          string    `json:"asha_code,omitempty"`

@@ -261,6 +261,80 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> adminCreateDoctor({
+    String? bearerToken,
+    required Map<String, dynamic> payload,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/admin/doctors'),
+      headers: _headers(token),
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> adminListDoctors({
+    String? bearerToken,
+    String? query,
+    String? specialization,
+    bool? active,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final params = <String, String>{
+      'limit': '$limit',
+      'offset': '$offset',
+      if (query != null && query.trim().isNotEmpty) 'query': query.trim(),
+      if (specialization != null && specialization.trim().isNotEmpty) 'specialization': specialization.trim(),
+      if (active != null) 'active': active.toString(),
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/admin/doctors').replace(queryParameters: params);
+    final res = await _client.get(uri, headers: _headers(token));
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> adminGetDoctorById({
+    String? bearerToken,
+    required String doctorId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/admin/doctors/$doctorId'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> adminUpdateDoctor({
+    String? bearerToken,
+    required String doctorId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.put(
+      Uri.parse('$baseUrl/api/v1/admin/doctors/$doctorId'),
+      headers: _headers(token),
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> adminUpdateDoctorStatus({
+    String? bearerToken,
+    required String doctorId,
+    required bool isActive,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.patch(
+      Uri.parse('$baseUrl/api/v1/admin/doctors/$doctorId/status'),
+      headers: _headers(token),
+      body: jsonEncode({'is_active': isActive}),
+    );
+    return _decode(res);
+  }
+
   Map<String, String> _headers(String bearerToken) => {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $bearerToken',

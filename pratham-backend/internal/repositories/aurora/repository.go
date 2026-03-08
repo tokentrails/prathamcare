@@ -28,6 +28,11 @@ type Repository interface {
 	GetVoiceJobByID(ctx context.Context, voiceJobID string) (models.VoiceJob, error)
 	ListVoiceJobsByASHA(ctx context.Context, ashaUserID string, limit int) ([]models.VoiceJob, error)
 	UpdateVoiceJobStatus(ctx context.Context, voiceJobID, status, transcriptionJobID, errorCode, errorMessage string, completedAt *time.Time) error
+	CreateDoctor(ctx context.Context, doctor models.Doctor) (models.Doctor, error)
+	ListDoctors(ctx context.Context, filter models.DoctorListFilter) ([]models.Doctor, error)
+	GetDoctorByID(ctx context.Context, doctorID string) (models.Doctor, error)
+	UpdateDoctor(ctx context.Context, doctor models.Doctor) (models.Doctor, error)
+	UpdateDoctorStatus(ctx context.Context, doctorID string, isActive bool, updatedBy string) (models.Doctor, error)
 
 	EnsurePatientByExternalID(ctx context.Context, externalID string) (models.Patient, error)
 	CreatePatient(ctx context.Context, patient models.Patient) (models.Patient, error)

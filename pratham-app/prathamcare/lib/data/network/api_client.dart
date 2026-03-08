@@ -293,6 +293,23 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> getASHADaySummary({
+    String? bearerToken,
+    String? date,
+    String tz = 'Asia/Kolkata',
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final targetDate = (date == null || date.trim().isEmpty) ? _todayInIndia() : date.trim();
+    final uri = Uri.parse('$baseUrl/api/v1/appointments/asha/day-summary').replace(
+      queryParameters: {
+        'date': targetDate,
+        'tz': tz,
+      },
+    );
+    final res = await _client.get(uri, headers: _headers(token));
+    return _decode(res);
+  }
+
   Future<Map<String, dynamic>> getAppointmentById({
     String? bearerToken,
     required String appointmentId,
@@ -459,6 +476,13 @@ class ApiClient {
       code: 'API_ERROR',
       message: 'Request failed',
     );
+  }
+
+  String _todayInIndia() {
+    final istNow = DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final month = istNow.month.toString().padLeft(2, '0');
+    final day = istNow.day.toString().padLeft(2, '0');
+    return '${istNow.year}-$month-$day';
   }
 }
 

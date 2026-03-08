@@ -244,3 +244,22 @@ type ASHAAppointmentListFilter struct {
 	Status     string `json:"status,omitempty"`
 	Limit      int    `json:"limit"`
 }
+
+type ASHADailyAppointmentSignal struct {
+	AppointmentID          string     `json:"appointment_id"`
+	PatientID              string     `json:"patient_id"`
+	PatientName            string     `json:"patient_name"`
+	Status                 string     `json:"status"`
+	ReasonCode             string     `json:"reason_code"`
+	ReasonText             string     `json:"reason_text,omitempty"`
+	PreferredDate          string     `json:"preferred_date,omitempty"`
+	PreferredTimeSlot      string     `json:"preferred_time_slot,omitempty"`
+	VisitType              string     `json:"visit_type"`
+	CreatedAt              time.Time  `json:"created_at"`
+	AgeYears               int        `json:"age_years,omitempty"`
+	Gender                 string     `json:"gender,omitempty"`
+	LastEncounterAt        *time.Time `json:"last_encounter_at,omitempty"`
+	RecentEncounterCount   int        `json:"recent_encounter_count"`
+	RecentCriticalAlerts30 int        `json:"recent_critical_alerts_30d"`
+	RecentHighAlerts30     int        `json:"recent_high_alerts_30d"`
+}

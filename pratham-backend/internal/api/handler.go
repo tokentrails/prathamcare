@@ -235,6 +235,8 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 		return h.handlePublicASHAAppointmentRequest(ctx, req)
 	case method == http.MethodGet && path == "/api/v1/appointments/asha":
 		return h.handleASHAAppointmentsList(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/appointments/asha/day-summary":
+		return h.handleASHADaySummary(ctx, req)
 	case method == http.MethodPatch && strings.HasPrefix(path, "/api/v1/appointments/") && strings.HasSuffix(path, "/status"):
 		appointmentID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/appointments/"), "/status")
 		if strings.TrimSpace(appointmentID) == "" {

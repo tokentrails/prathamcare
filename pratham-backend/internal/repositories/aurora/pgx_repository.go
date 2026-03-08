@@ -1335,6 +1335,98 @@ LIMIT $5`,
 	return out, rows.Err()
 }
 
+func (r *PgxRepository) ListASHADailyAppointmentSignals(ctx context.Context, ashaUserID, date, timezone string) ([]models.ASHADailyAppointmentSignal, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  a.appointment_id::text,
+  a.patient_id::text,
+  COALESCE(NULLIF(p.full_name, ''), a.requestor_name) AS patient_name,
+  a.status::text,
+  a.reason_code,
+  COALESCE(a.reason_text, ''),
+  COALESCE(to_char(a.preferred_date, 'YYYY-MM-DD'), ''),
+  COALESCE(a.preferred_time_slot, ''),
+  a.visit_type,
+  a.created_at,
+  COALESCE(p.age_years, 0),
+  COALESCE(p.gender, ''),
+  (
+    SELECT MAX(e.occurred_at)
+    FROM encounters e
+    WHERE e.patient_id = a.patient_id
+  ) AS last_encounter_at,
+  (
+    SELECT COUNT(*)::int
+    FROM encounters e
+    WHERE e.patient_id = a.patient_id
+      AND e.occurred_at >= NOW() - INTERVAL '30 days'
+  ) AS recent_encounters_30d,
+  (
+    SELECT COUNT(*)::int
+    FROM encounters e
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(e.clinical_alerts, '[]'::jsonb)) AS alert
+    WHERE e.patient_id = a.patient_id
+      AND e.occurred_at >= NOW() - INTERVAL '30 days'
+      AND LOWER(COALESCE(alert->>'severity', '')) = 'critical'
+  ) AS critical_alerts_30d,
+  (
+    SELECT COUNT(*)::int
+    FROM encounters e
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(e.clinical_alerts, '[]'::jsonb)) AS alert
+    WHERE e.patient_id = a.patient_id
+      AND e.occurred_at >= NOW() - INTERVAL '30 days'
+      AND LOWER(COALESCE(alert->>'severity', '')) = 'high'
+  ) AS high_alerts_30d
+FROM asha_appointments a
+LEFT JOIN patients p ON p.patient_id = a.patient_id
+WHERE a.asha_user_id::text = $1
+  AND COALESCE(a.preferred_date, (a.created_at AT TIME ZONE $2)::date) = $3::date
+  AND a.status::text <> 'cancelled'
+ORDER BY
+  CASE COALESCE(a.preferred_time_slot, '')
+    WHEN 'morning' THEN 1
+    WHEN 'afternoon' THEN 2
+    WHEN 'evening' THEN 3
+    ELSE 9
+  END ASC,
+  a.created_at ASC`,
+		strings.TrimSpace(ashaUserID),
+		strings.TrimSpace(timezone),
+		strings.TrimSpace(date),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.ASHADailyAppointmentSignal, 0, 16)
+	for rows.Next() {
+		var item models.ASHADailyAppointmentSignal
+		if err := rows.Scan(
+			&item.AppointmentID,
+			&item.PatientID,
+			&item.PatientName,
+			&item.Status,
+			&item.ReasonCode,
+			&item.ReasonText,
+			&item.PreferredDate,
+			&item.PreferredTimeSlot,
+			&item.VisitType,
+			&item.CreatedAt,
+			&item.AgeYears,
+			&item.Gender,
+			&item.LastEncounterAt,
+			&item.RecentEncounterCount,
+			&item.RecentCriticalAlerts30,
+			&item.RecentHighAlerts30,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *PgxRepository) GetASHAAppointmentByID(ctx context.Context, appointmentID string) (models.ASHAAppointment, error) {
 	return r.getASHAAppointment(ctx, appointmentID, "")
 }

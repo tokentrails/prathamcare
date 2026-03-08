@@ -51,6 +51,7 @@ type Repository interface {
 	MatchASHAByLocation(ctx context.Context, villageOrWard, blockOrTaluk, district, state, pincode string, latitude, longitude *float64) (models.ASHAMatchResult, error)
 	CreateASHAAppointment(ctx context.Context, appt models.ASHAAppointment) (models.ASHAAppointment, error)
 	ListASHAAppointments(ctx context.Context, filter models.ASHAAppointmentListFilter) ([]models.ASHAAppointment, error)
+	ListASHADailyAppointmentSignals(ctx context.Context, ashaUserID, date, timezone string) ([]models.ASHADailyAppointmentSignal, error)
 	GetASHAAppointmentByID(ctx context.Context, appointmentID string) (models.ASHAAppointment, error)
 	GetASHAAppointmentByIDForASHA(ctx context.Context, appointmentID, ashaUserID string) (models.ASHAAppointment, error)
 	UpdateASHAAppointmentStatus(ctx context.Context, appointmentID, status, updatedBy string) error

@@ -5,6 +5,7 @@ import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/network/api_client.dart';
 import 'asha_activity_screen.dart';
 import 'asha_appointments_screen.dart';
+import 'asha_daily_summary_screen.dart';
 import 'voice_visit_screen.dart';
 
 class ASHAHomeScreen extends StatefulWidget {
@@ -23,6 +24,9 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
   int _queuedCount = 0;
   int _encounterCount = 0;
   int _transcriptionCount = 0;
+  bool _summaryLoading = false;
+  Map<String, dynamic>? _daySummary;
+  List<String> _summaryWarnings = const [];
 
   @override
   void initState() {
@@ -31,20 +35,26 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
   }
 
   Future<void> _loadDashboardData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _summaryLoading = true;
+    });
     try {
       final syncFuture = _apiClient.getSyncStatus();
       final encounterFuture = _apiClient.getEncounterHistory(limit: 30);
       final voiceFuture = _apiClient.getVoiceHistory(limit: 30);
-      final results = await Future.wait([syncFuture, encounterFuture, voiceFuture]);
+      final summaryFuture = _apiClient.getASHADaySummary().catchError((_) => <String, dynamic>{});
+      final results = await Future.wait([syncFuture, encounterFuture, voiceFuture, summaryFuture]);
 
       final sync = results[0] as Map<String, dynamic>;
       final encounter = results[1] as Map<String, dynamic>;
       final voice = results[2] as Map<String, dynamic>;
+      final summary = results[3] as Map<String, dynamic>;
 
       final queued = _asMapList(encounter['queued']);
       final encounters = _asMapList(encounter['encounters']);
       final voiceItems = _asMapList(voice['items']);
+      final warnings = _asStringList(summary['warnings']);
 
       if (!mounted) {
         return;
@@ -54,12 +64,17 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
         _queuedCount = queued.length;
         _encounterCount = encounters.length;
         _transcriptionCount = voiceItems.length;
+        _daySummary = summary.isEmpty ? null : summary;
+        _summaryWarnings = warnings;
       });
     } catch (_) {
       // Keep functional UI and current values.
     } finally {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _summaryLoading = false;
+        });
       }
     }
   }
@@ -79,6 +94,18 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ASHAActivityScreen(initialView: view),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    await _loadDashboardData();
+  }
+
+  Future<void> _openDailySummary() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ASHADailySummaryScreen(initialData: _daySummary),
       ),
     );
     if (!mounted) {
@@ -238,6 +265,8 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
           child: Column(
             children: [
               _buildCreateEncounterPanel(),
+              const SizedBox(height: 12),
+              _buildPrioritySummaryCard(),
             ],
           ),
         ),
@@ -254,6 +283,8 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
     return Column(
       children: [
         _buildCreateEncounterPanel(),
+        const SizedBox(height: 12),
+        _buildPrioritySummaryCard(),
         const SizedBox(height: 12),
         _buildJobsListPanel(),
       ],
@@ -354,6 +385,135 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPrioritySummaryCard() {
+    if (_summaryLoading && _daySummary == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          children: [
+            Container(height: 14, width: double.infinity, color: const Color(0xFFE8EFEF)),
+            const SizedBox(height: 10),
+            Container(height: 12, width: double.infinity, color: const Color(0xFFE8EFEF)),
+            const SizedBox(height: 10),
+            Container(height: 12, width: double.infinity, color: const Color(0xFFE8EFEF)),
+          ],
+        ),
+      );
+    }
+
+    final summary = _daySummary ?? const <String, dynamic>{};
+    final totals = summary['totals'] is Map ? (summary['totals'] as Map).cast<String, dynamic>() : const <String, dynamic>{};
+    final ranked = _asMapList(summary['ranked_appointments']);
+    final shortText = '${summary['summary_text_short'] ?? 'No appointments today.'}'.trim();
+
+    final appointments = (totals['appointments'] as num?)?.toInt() ?? ranked.length;
+    final critical = (totals['critical'] as num?)?.toInt() ?? 0;
+    final high = (totals['high'] as num?)?.toInt() ?? 0;
+
+    return InkWell(
+      onTap: _openDailySummary,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Today\u2019s Priority Summary',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.lightPlaceholder),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _MiniStatPill(label: 'Total', value: appointments, color: AppColors.primary),
+                _MiniStatPill(label: 'Critical', value: critical, color: AppColors.lightError),
+                _MiniStatPill(label: 'High', value: high, color: AppColors.lightWarning),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              shortText.isEmpty ? 'No appointments today.' : shortText,
+              style: const TextStyle(
+                color: AppColors.lightTextSecondary,
+                fontSize: 13.5,
+                height: 1.35,
+              ),
+            ),
+            if (_summaryWarnings.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.lightWarningSoft,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFFDDA0)),
+                ),
+                child: Text(
+                  _summaryWarnings.join('\n'),
+                  style: const TextStyle(
+                    color: Color(0xFF92400E),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (ranked.isEmpty)
+              const Text(
+                'No appointments today',
+                style: TextStyle(color: AppColors.lightTextMuted),
+              )
+            else
+              Column(
+                children: ranked.take(2).map((item) {
+                  final level = '${item['priority_level'] ?? 'low'}';
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${item['patient_name'] ?? '-'}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _PriorityChip(level: level),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -653,6 +813,77 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
       return const [];
     }
     return v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  static List<String> _asStringList(dynamic v) {
+    if (v is! List) {
+      return const [];
+    }
+    return v.map((e) => '$e').where((e) => e.trim().isNotEmpty).toList();
+  }
+}
+
+class _MiniStatPill extends StatelessWidget {
+  const _MiniStatPill({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text('$label: $value', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PriorityChip extends StatelessWidget {
+  const _PriorityChip({required this.level});
+
+  final String level;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = level.toLowerCase();
+    final color = switch (normalized) {
+      'critical' => AppColors.lightError,
+      'high' => AppColors.lightWarning,
+      'medium' => AppColors.lightInfo,
+      _ => AppColors.lightTextMuted,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        normalized.toUpperCase(),
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700),
+      ),
+    );
   }
 }
 

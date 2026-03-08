@@ -62,16 +62,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               _buildRoleTabs(),
                               const SizedBox(height: 32),
                               const Text(
-                                'Welcome back, Doctor',
-                                style: TextStyle(
-                                  color: Color(0xFF0F172A),
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.35,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
                                 'Please enter your credentials to access patient records.',
                                 style: TextStyle(
                                   color: AppColors.lightTextMuted,
@@ -151,14 +141,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 18),
                               _buildSignInButton(),
-                              const SizedBox(height: 10),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () => Navigator.of(context).pushNamed('/public/appointments/request'),
-                                  child: const Text('Need ASHA home visit? Request appointment'),
-                                ),
-                              ),
                               if (signInError != null) ...[
                                 const SizedBox(height: 10),
                                 Text(
@@ -166,15 +148,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                   style: const TextStyle(color: AppColors.lightError, fontSize: 13),
                                 ),
                               ],
-                              const SizedBox(height: 32),
-                              _buildOrLoginWith(),
+                              const SizedBox(height: 24),
+                              _buildPublicRequestCard(),
                             ],
                           ),
                         ),
                       ),
-                      const Spacer(),
-                      const SizedBox(height: 24),
-                      _buildFooter(),
                     ],
                   ),
                 ),
@@ -776,96 +755,49 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Widget _buildOrLoginWith() {
+  Widget _buildPublicRequestCard() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: const [
-            Expanded(child: Divider(color: Color(0xFFE2E8F0))),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                'OR LOGIN WITH',
-                style: TextStyle(
-                  color: AppColors.lightPlaceholder,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.6,
-                ),
+        const Text(
+          'Need an ASHA Home Visit?',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: AppColors.lightTextPrimary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Book a home-visit appointment by sharing your exact location details (village, district, pincode) for faster ASHA assignment.',
+          style: TextStyle(
+            fontSize: 12.5,
+            color: AppColors.lightTextMuted,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: OutlinedButton(
+            onPressed: () =>
+                Navigator.of(context).pushNamed('/public/appointments/request'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primaryBorder),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
               ),
             ),
-            Expanded(child: Divider(color: Color(0xFFE2E8F0))),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 2,
-                offset: Offset(0, 1),
-              ),
-            ],
+            child: const Text(
+              'Request ASHA Appointment',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
-          child: const Icon(Icons.fingerprint, color: AppColors.lightTextSecondary),
         ),
       ],
-    );
-  }
-
-  Widget _buildFooter() {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 384),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.verified_user_outlined, color: Color(0xCC0F766E), size: 14),
-              SizedBox(width: 8),
-              Text(
-                'CLINICAL USE ONLY',
-                style: TextStyle(
-                  color: Color(0xCC0F766E),
-                  fontSize: 12,
-                  letterSpacing: 0.6,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text.rich(
-            textAlign: TextAlign.center,
-            TextSpan(
-              style: const TextStyle(
-                color: AppColors.lightPlaceholder,
-                fontSize: 12,
-                height: 1.4,
-              ),
-              children: const [
-                TextSpan(text: 'By logging in, you agree to the '),
-                TextSpan(
-                  text: 'Terms of Service',
-                  style: TextStyle(decoration: TextDecoration.underline),
-                ),
-                TextSpan(text: ' & '),
-                TextSpan(
-                  text: 'Privacy Policy',
-                  style: TextStyle(decoration: TextDecoration.underline),
-                ),
-                TextSpan(text: '.'),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

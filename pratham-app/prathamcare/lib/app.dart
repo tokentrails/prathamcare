@@ -15,7 +15,6 @@ class PrathamCareApp extends StatelessWidget {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.light,
       onGenerateRoute: AppRouter.onGenerateRoute,
-      initialRoute: '/',
     );
   }
 }

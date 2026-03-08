@@ -26,6 +26,7 @@ class AppRouter {
           settings: settings,
         );
       case '/public/appointments/request':
+      case '/public/appointments/request/':
         return MaterialPageRoute<void>(
           builder: (_) => const PublicAppointmentRequestScreen(),
           settings: settings,

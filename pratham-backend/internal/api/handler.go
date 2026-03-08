@@ -231,6 +231,34 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 		return h.handleVoiceTranscribeStatus(ctx, req, voiceJobID)
 	case method == http.MethodPost && path == "/api/v1/encounters":
 		return h.handleEncounterCreate(ctx, req)
+	case method == http.MethodPost && path == "/api/v1/public/appointments/request":
+		return h.handlePublicASHAAppointmentRequest(ctx, req)
+	case method == http.MethodGet && path == "/api/v1/appointments/asha":
+		return h.handleASHAAppointmentsList(ctx, req)
+	case method == http.MethodPatch && strings.HasPrefix(path, "/api/v1/appointments/") && strings.HasSuffix(path, "/status"):
+		appointmentID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/appointments/"), "/status")
+		if strings.TrimSpace(appointmentID) == "" {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleASHAAppointmentStatusPatch(ctx, req, appointmentID)
+	case method == http.MethodPost && strings.HasPrefix(path, "/api/v1/appointments/") && strings.HasSuffix(path, "/start-encounter"):
+		appointmentID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/appointments/"), "/start-encounter")
+		if strings.TrimSpace(appointmentID) == "" {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleASHAAppointmentStartEncounter(ctx, req, appointmentID)
+	case method == http.MethodPost && strings.HasPrefix(path, "/api/v1/appointments/") && strings.HasSuffix(path, "/complete"):
+		appointmentID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/appointments/"), "/complete")
+		if strings.TrimSpace(appointmentID) == "" {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleASHAAppointmentComplete(ctx, req, appointmentID)
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/v1/appointments/"):
+		appointmentID := strings.TrimPrefix(path, "/api/v1/appointments/")
+		if strings.TrimSpace(appointmentID) == "" || strings.EqualFold(appointmentID, "asha") {
+			return h.error(http.StatusNotFound, "RESOURCE_NOT_FOUND", "route not found")
+		}
+		return h.handleASHAAppointmentGet(ctx, req, appointmentID)
 	case method == http.MethodPost && path == "/api/v1/admin/doctors":
 		return h.handleAdminDoctorCreate(ctx, req)
 	case method == http.MethodGet && path == "/api/v1/admin/doctors":

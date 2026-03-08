@@ -4,6 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/network/api_client.dart';
 import 'asha_activity_screen.dart';
+import 'asha_appointments_screen.dart';
 import 'voice_visit_screen.dart';
 
 class ASHAHomeScreen extends StatefulWidget {
@@ -410,7 +411,7 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
   Widget _buildDesktopSidebar() {
     const items = [
       (icon: Icons.home_filled, label: 'Home'),
-      (icon: Icons.calendar_today_outlined, label: 'Schedule'),
+      (icon: Icons.calendar_today_outlined, label: 'Appointments'),
       (icon: Icons.groups_outlined, label: 'Patients'),
       (icon: Icons.work_outline_rounded, label: 'Jobs'),
       (icon: Icons.person_outline_rounded, label: 'Profile'),
@@ -536,7 +537,7 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
   Widget _buildBottomNavigation() {
     const items = [
       (icon: Icons.home_filled, label: 'Home'),
-      (icon: Icons.calendar_today_outlined, label: 'Schedule'),
+      (icon: Icons.calendar_today_outlined, label: 'Appointments'),
       (icon: Icons.groups_outlined, label: 'Patients'),
       (icon: Icons.work_outline_rounded, label: 'Jobs'),
       (icon: Icons.person_outline_rounded, label: 'Profile'),
@@ -621,6 +622,19 @@ class _ASHAHomeScreenState extends State<ASHAHomeScreen> {
     if (index == 3) {
       setState(() => _selectedBottomTab = index);
       await _openJobs(ASHAJobsView.overview);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _selectedBottomTab = 0);
+      return;
+    }
+    if (index == 1) {
+      setState(() => _selectedBottomTab = index);
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const ASHAAppointmentsScreen(),
+        ),
+      );
       if (!mounted) {
         return;
       }

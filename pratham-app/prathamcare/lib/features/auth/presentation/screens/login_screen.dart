@@ -151,6 +151,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 18),
                               _buildSignInButton(),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () => Navigator.of(context).pushNamed('/public/appointments/request'),
+                                  child: const Text('Need ASHA home visit? Request appointment'),
+                                ),
+                              ),
                               if (signInError != null) ...[
                                 const SizedBox(height: 10),
                                 Text(

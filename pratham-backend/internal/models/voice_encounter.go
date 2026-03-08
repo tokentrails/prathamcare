@@ -25,6 +25,7 @@ type EncounterRecord struct {
 	EncounterID       string
 	PatientID         string
 	ASHAUserID        string
+	AppointmentID     string
 	ClinicID          string
 	VisitType         string
 	Status            string

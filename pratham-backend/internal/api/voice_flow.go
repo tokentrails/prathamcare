@@ -409,6 +409,7 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 
 	var in struct {
 		PatientID         string         `json:"patient_id"`
+		AppointmentID     string         `json:"appointment_id"`
 		VisitType         string         `json:"visit_type"`
 		OccurredAt        string         `json:"occurred_at"`
 		Transcription     string         `json:"transcription"`
@@ -423,6 +424,9 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 	}
 	if strings.TrimSpace(in.PatientID) == "" {
 		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "patient_id is required")
+	}
+	if strings.TrimSpace(in.AppointmentID) != "" && !looksLikeUUID(strings.TrimSpace(in.AppointmentID)) {
+		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "appointment_id must be a valid UUID")
 	}
 	if strings.TrimSpace(in.Transcription) == "" {
 		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "transcription is required")
@@ -480,6 +484,20 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 	if !looksLikeUUID(patient.PatientID) {
 		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "unable to map patient_id to internal UUID")
 	}
+	if strings.TrimSpace(in.AppointmentID) != "" {
+		apptCtx, cancelAppt := context.WithTimeout(ctx, 3*time.Second)
+		appt, apptErr := h.deps.Aurora.GetASHAAppointmentByIDForASHA(apptCtx, strings.TrimSpace(in.AppointmentID), ashaUserID)
+		cancelAppt()
+		if apptErr != nil {
+			if apptErr == pgx.ErrNoRows || strings.Contains(strings.ToLower(apptErr.Error()), "no rows") {
+				return h.error(http.StatusBadRequest, "RESOURCE_NOT_FOUND", "appointment_id not found for caller")
+			}
+			return h.error(http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "appointment lookup unavailable")
+		}
+		if strings.TrimSpace(appt.PatientID) != strings.TrimSpace(patient.PatientID) {
+			return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "appointment patient_id does not match request patient_id")
+		}
+	}
 
 	if in.ExtractedEntities == nil {
 		in.ExtractedEntities = map[string]any{}
@@ -516,6 +534,7 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 	enc, cErr := h.deps.Aurora.CreateEncounter(createCtx, models.EncounterRecord{
 		PatientID:         patient.PatientID,
 		ASHAUserID:        ashaUserID,
+		AppointmentID:     strings.TrimSpace(in.AppointmentID),
 		VisitType:         in.VisitType,
 		Status:            "completed",
 		OccurredAt:        occurredAt,
@@ -531,9 +550,6 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 	})
 	cancelCreate()
 	if cErr != nil {
-		if strings.Contains(strings.ToLower(cErr.Error()), "duplicate key") && strings.Contains(strings.ToLower(cErr.Error()), "idempotency_key") {
-			return h.error(http.StatusConflict, "VALIDATION_ERROR", "duplicate encounter submission")
-		}
 		queueID, queueErr := h.enqueueEncounterFallback(ctx, claims.Subject, in.PatientID, in)
 		if queueErr != nil {
 			log.Printf("encounter_create_failed request_id=%s error=%v queue_error=%v", requestID, cErr, queueErr)
@@ -568,11 +584,20 @@ func (h *Handler) handleEncounterCreate(ctx context.Context, req events.APIGatew
 		log.Printf("encounter_create_alerts_warn request_id=%s encounter_id=%s error=%v", requestID, enc.EncounterID, err)
 	}
 	cancelAlerts()
+	if strings.TrimSpace(in.AppointmentID) != "" {
+		completeCtx, cancelComplete := context.WithTimeout(ctx, 3*time.Second)
+		if err := h.deps.Aurora.CompleteASHAAppointment(completeCtx, strings.TrimSpace(in.AppointmentID), enc.EncounterID, ashaUserID); err != nil {
+			warnings = append(warnings, "appointment completion pending")
+			log.Printf("encounter_create_appointment_complete_warn request_id=%s appointment_id=%s encounter_id=%s error=%v", requestID, in.AppointmentID, enc.EncounterID, err)
+		}
+		cancelComplete()
+	}
 
 	out := map[string]any{
 		"encounter_id":      enc.EncounterID,
 		"sync_status":       enc.SyncStatus,
 		"fhir_encounter_id": enc.FHIREncounterID,
+		"appointment_id":    strings.TrimSpace(in.AppointmentID),
 	}
 	if fhirErr != nil || !strings.EqualFold(fhirSyncStatus, "synced") {
 		out["warning"] = "Encounter stored in Aurora; FHIR sync queued for retry"
@@ -802,6 +827,7 @@ func (h *Handler) handleEncounterHistory(ctx context.Context, req events.APIGate
 				encounters = append(encounters, map[string]any{
 					"encounter_id":      e.EncounterID,
 					"patient_id":        e.PatientID,
+					"appointment_id":    e.AppointmentID,
 					"visit_type":        e.VisitType,
 					"status":            e.Status,
 					"sync_status":       e.SyncStatus,
@@ -890,6 +916,7 @@ func (h *Handler) handleEncounterDetail(ctx context.Context, req events.APIGatew
 	resp := map[string]any{
 		"encounter_id":      encounter.EncounterID,
 		"patient_id":        encounter.PatientID,
+		"appointment_id":    encounter.AppointmentID,
 		"visit_type":        encounter.VisitType,
 		"status":            encounter.Status,
 		"sync_status":       encounter.SyncStatus,

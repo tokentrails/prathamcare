@@ -163,6 +163,7 @@ class ApiClient {
   Future<Map<String, dynamic>> submitEncounter({
     String? bearerToken,
     required String patientId,
+    String? appointmentId,
     required String visitType,
     required String occurredAt,
     required String transcription,
@@ -178,6 +179,7 @@ class ApiClient {
       headers: _headers(token),
       body: jsonEncode({
         'patient_id': patientId,
+        if (appointmentId != null && appointmentId.trim().isNotEmpty) 'appointment_id': appointmentId.trim(),
         'visit_type': visitType,
         'occurred_at': occurredAt,
         'transcription': transcription,
@@ -257,6 +259,88 @@ class ApiClient {
     final res = await _client.get(
       Uri.parse('$baseUrl/api/v1/patients/recent?limit=$limit'),
       headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> requestPublicASHAAppointment({
+    required Map<String, dynamic> payload,
+  }) async {
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/public/appointments/request'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getASHAAppointments({
+    String? bearerToken,
+    String? from,
+    String? to,
+    String? status,
+    int limit = 20,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final params = <String, String>{
+      'limit': '$limit',
+      if (from != null && from.trim().isNotEmpty) 'from': from.trim(),
+      if (to != null && to.trim().isNotEmpty) 'to': to.trim(),
+      if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/appointments/asha').replace(queryParameters: params);
+    final res = await _client.get(uri, headers: _headers(token));
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> getAppointmentById({
+    String? bearerToken,
+    required String appointmentId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/v1/appointments/$appointmentId'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> updateAppointmentStatus({
+    String? bearerToken,
+    required String appointmentId,
+    required String status,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.patch(
+      Uri.parse('$baseUrl/api/v1/appointments/$appointmentId/status'),
+      headers: _headers(token),
+      body: jsonEncode({'status': status}),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> startAppointmentEncounter({
+    String? bearerToken,
+    required String appointmentId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/appointments/$appointmentId/start-encounter'),
+      headers: _headers(token),
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> completeAppointment({
+    String? bearerToken,
+    required String appointmentId,
+    required String encounterId,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/appointments/$appointmentId/complete'),
+      headers: _headers(token),
+      body: jsonEncode({'encounter_id': encounterId}),
     );
     return _decode(res);
   }

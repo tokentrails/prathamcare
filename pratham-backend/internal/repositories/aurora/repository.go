@@ -45,4 +45,15 @@ type Repository interface {
 	ListEncountersByASHA(ctx context.Context, ashaUserID string, limit int) ([]models.EncounterRecord, error)
 	UpdateEncounterFHIRSync(ctx context.Context, encounterID, fhirEncounterID, syncStatus string) error
 	CreateEncounterAlerts(ctx context.Context, encounterID string, alerts []models.EncounterAlert) error
+	FindPatientForPublicRequest(ctx context.Context, phoneE164, fullName, pincode, abhaNumber string) (models.Patient, error)
+	CountRecentPublicAppointmentRequests(ctx context.Context, phoneE164, requestIP string, within time.Duration) (int, error)
+	HasRecentDuplicatePublicAppointment(ctx context.Context, phoneE164, reasonCode, pincode string, within time.Duration) (bool, error)
+	MatchASHAByLocation(ctx context.Context, villageOrWard, blockOrTaluk, district, state, pincode string, latitude, longitude *float64) (models.ASHAMatchResult, error)
+	CreateASHAAppointment(ctx context.Context, appt models.ASHAAppointment) (models.ASHAAppointment, error)
+	ListASHAAppointments(ctx context.Context, filter models.ASHAAppointmentListFilter) ([]models.ASHAAppointment, error)
+	GetASHAAppointmentByID(ctx context.Context, appointmentID string) (models.ASHAAppointment, error)
+	GetASHAAppointmentByIDForASHA(ctx context.Context, appointmentID, ashaUserID string) (models.ASHAAppointment, error)
+	UpdateASHAAppointmentStatus(ctx context.Context, appointmentID, status, updatedBy string) error
+	CompleteASHAAppointment(ctx context.Context, appointmentID, encounterID, updatedBy string) error
+	LogASHAAppointmentEvent(ctx context.Context, evt models.ASHAAppointmentEvent) error
 }

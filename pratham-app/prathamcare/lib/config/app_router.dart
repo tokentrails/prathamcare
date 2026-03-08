@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../features/asha/presentation/screens/public_appointment_request_screen.dart';
 import '../features/asha/presentation/screens/asha_home_screen.dart';
 import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/dashboard/presentation/screens/role_dashboard_screen.dart';
@@ -22,6 +23,11 @@ class AppRouter {
       case '/asha':
         return MaterialPageRoute<void>(
           builder: (_) => const ASHAHomeScreen(),
+          settings: settings,
+        );
+      case '/public/appointments/request':
+        return MaterialPageRoute<void>(
+          builder: (_) => const PublicAppointmentRequestScreen(),
           settings: settings,
         );
       case '/profile':

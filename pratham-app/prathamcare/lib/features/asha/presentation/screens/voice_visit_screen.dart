@@ -19,9 +19,16 @@ import '../widgets/patient_search_field.dart';
 import '../widgets/patient_summary_card.dart';
 
 class VoiceVisitScreen extends StatefulWidget {
-  const VoiceVisitScreen({super.key, this.patientId});
+  const VoiceVisitScreen({
+    super.key,
+    this.patientId,
+    this.appointmentId,
+    this.appointmentContext,
+  });
 
   final String? patientId;
+  final String? appointmentId;
+  final Map<String, dynamic>? appointmentContext;
 
   @override
   State<VoiceVisitScreen> createState() => _VoiceVisitScreenState();
@@ -513,6 +520,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
 
       final encounterRes = await _apiClient.submitEncounter(
         patientId: patientId,
+        appointmentId: widget.appointmentId,
         visitType: '${(data['extracted_entities'] as Map<String, dynamic>?)?['visit_type'] ?? 'home_visit'}',
         occurredAt: DateTime.now().toUtc().toIso8601String(),
         transcription: '${data['transcription'] ?? ''}',
@@ -525,6 +533,13 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
 
       if (!mounted) {
         return;
+      }
+      final encounterId = '${encounterRes['encounter_id'] ?? ''}'.trim();
+      if ((widget.appointmentId ?? '').trim().isNotEmpty && encounterId.isNotEmpty) {
+        await _apiClient.completeAppointment(
+          appointmentId: widget.appointmentId!.trim(),
+          encounterId: encounterId,
+        );
       }
       final syncStatus = '${encounterRes['sync_status'] ?? ''}'.toLowerCase();
       final queued = syncStatus == 'queued' || syncStatus == 'pending';
@@ -579,6 +594,29 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if ((widget.appointmentId ?? '').trim().isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5F3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFC6E4DE)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.event_note_rounded, color: AppColors.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Appointment context: ${widget.appointmentContext?['reason_label'] ?? widget.appointmentContext?['reason_code'] ?? ''}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 _buildPatientSelectorCard(),
                 const SizedBox(height: 12),
                 _buildAudioPickerCard(),

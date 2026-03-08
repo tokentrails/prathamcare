@@ -829,11 +829,13 @@ LIMIT $3`
 func (r *PgxRepository) CreateEncounter(ctx context.Context, encounter models.EncounterRecord) (models.EncounterRecord, error) {
 	q := `
 INSERT INTO encounters (
-	patient_id, asha_user_id, clinic_id, visit_type, status, occurred_at,
+	patient_id, asha_user_id, appointment_id, clinic_id, visit_type, status, occurred_at,
 	source_audio_bucket, source_audio_key, transcription_text, translation_text,
 	extracted_entities, clinical_alerts, fhir_encounter_id, sync_status, idempotency_key
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15)
-RETURNING encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15,$16)
+ON CONFLICT (idempotency_key) DO UPDATE
+SET updated_at = encounters.updated_at
+RETURNING encounter_id, patient_id::text, asha_user_id::text, COALESCE(appointment_id::text, ''), COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
 	COALESCE(source_audio_bucket, ''), COALESCE(source_audio_key, ''), COALESCE(transcription_text, ''), COALESCE(translation_text, ''),
 	extracted_entities::text, clinical_alerts::text, COALESCE(fhir_encounter_id, ''), sync_status::text, COALESCE(idempotency_key, ''),
 	created_at, updated_at`
@@ -842,6 +844,7 @@ RETURNING encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id
 	err := r.pool.QueryRow(ctx, q,
 		encounter.PatientID,
 		encounter.ASHAUserID,
+		nullIfEmpty(encounter.AppointmentID),
 		nullIfEmpty(encounter.ClinicID),
 		nullIfEmpty(encounter.VisitType),
 		nullIfEmpty(encounter.Status),
@@ -859,6 +862,7 @@ RETURNING encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id
 		&out.EncounterID,
 		&out.PatientID,
 		&out.ASHAUserID,
+		&out.AppointmentID,
 		&out.ClinicID,
 		&out.VisitType,
 		&out.Status,
@@ -883,7 +887,7 @@ func (r *PgxRepository) ListEncountersByASHA(ctx context.Context, ashaUserID str
 		limit = 20
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
+SELECT encounter_id, patient_id::text, asha_user_id::text, COALESCE(appointment_id::text, ''), COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
 	COALESCE(source_audio_bucket, ''), COALESCE(source_audio_key, ''), COALESCE(transcription_text, ''), COALESCE(translation_text, ''),
 	extracted_entities::text, clinical_alerts::text, COALESCE(fhir_encounter_id, ''), sync_status::text, COALESCE(idempotency_key, ''),
 	created_at, updated_at
@@ -903,6 +907,7 @@ LIMIT $2`, ashaUserID, limit)
 			&item.EncounterID,
 			&item.PatientID,
 			&item.ASHAUserID,
+			&item.AppointmentID,
 			&item.ClinicID,
 			&item.VisitType,
 			&item.Status,
@@ -929,7 +934,7 @@ LIMIT $2`, ashaUserID, limit)
 func (r *PgxRepository) GetEncounterByID(ctx context.Context, encounterID string) (models.EncounterRecord, error) {
 	var out models.EncounterRecord
 	err := r.pool.QueryRow(ctx, `
-SELECT encounter_id, patient_id::text, asha_user_id::text, COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
+SELECT encounter_id, patient_id::text, asha_user_id::text, COALESCE(appointment_id::text, ''), COALESCE(clinic_id::text, ''), visit_type, status, occurred_at,
 	COALESCE(source_audio_bucket, ''), COALESCE(source_audio_key, ''), COALESCE(transcription_text, ''), COALESCE(translation_text, ''),
 	extracted_entities::text, clinical_alerts::text, COALESCE(fhir_encounter_id, ''), sync_status::text, COALESCE(idempotency_key, ''),
 	created_at, updated_at
@@ -938,6 +943,7 @@ WHERE encounter_id = $1`, encounterID).Scan(
 		&out.EncounterID,
 		&out.PatientID,
 		&out.ASHAUserID,
+		&out.AppointmentID,
 		&out.ClinicID,
 		&out.VisitType,
 		&out.Status,
@@ -988,6 +994,449 @@ VALUES ($1,$2,$3,$4,$5::jsonb)`,
 	return nil
 }
 
+func (r *PgxRepository) FindPatientForPublicRequest(ctx context.Context, phoneE164, fullName, pincode, abhaNumber string) (models.Patient, error) {
+	fullName = strings.TrimSpace(fullName)
+	pincode = strings.TrimSpace(pincode)
+	phoneE164 = strings.TrimSpace(phoneE164)
+	abhaNumber = strings.TrimSpace(abhaNumber)
+
+	var out models.Patient
+	if abhaNumber != "" {
+		err := r.pool.QueryRow(ctx, `
+SELECT `+patientSelectClause("p")+`
+FROM patients p
+WHERE COALESCE(NULLIF(p.abha_number, ''), COALESCE(NULLIF(p.abha_id, ''), '')) = $1
+ORDER BY p.updated_at DESC
+LIMIT 1`, abhaNumber).Scan(patientScanTargets(&out)...)
+		if err == nil {
+			return out, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return models.Patient{}, err
+		}
+	}
+
+	err := r.pool.QueryRow(ctx, `
+SELECT `+patientSelectClause("p")+`
+FROM patients p
+WHERE COALESCE(NULLIF(p.phone_e164, ''), COALESCE(NULLIF(p.phone_number, ''), COALESCE(NULLIF(p.phone, ''), ''))) = $1
+  AND (
+    ($2 <> '' AND p.full_name ILIKE '%' || $2 || '%')
+    OR ($3 <> '' AND COALESCE(p.pincode, '') = $3)
+  )
+ORDER BY p.updated_at DESC
+LIMIT 1`, phoneE164, fullName, pincode).Scan(patientScanTargets(&out)...)
+	if err != nil {
+		return models.Patient{}, err
+	}
+	return out, nil
+}
+
+func (r *PgxRepository) CountRecentPublicAppointmentRequests(ctx context.Context, phoneE164, requestIP string, within time.Duration) (int, error) {
+	seconds := int(within.Seconds())
+	if seconds <= 0 {
+		seconds = 600
+	}
+	var count int
+	err := r.pool.QueryRow(ctx, `
+SELECT COUNT(*)
+FROM asha_appointments
+WHERE created_at >= NOW() - ($3 || ' seconds')::interval
+  AND (
+    requestor_phone = $1
+    OR COALESCE(notes->>'request_ip', '') = $2
+  )`, strings.TrimSpace(phoneE164), strings.TrimSpace(requestIP), seconds).Scan(&count)
+	return count, err
+}
+
+func (r *PgxRepository) HasRecentDuplicatePublicAppointment(ctx context.Context, phoneE164, reasonCode, pincode string, within time.Duration) (bool, error) {
+	seconds := int(within.Seconds())
+	if seconds <= 0 {
+		seconds = 600
+	}
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS(
+  SELECT 1
+  FROM asha_appointments
+  WHERE requestor_phone = $1
+    AND reason_code = $2
+    AND pincode = $3
+    AND created_at >= NOW() - ($4 || ' seconds')::interval
+)`, strings.TrimSpace(phoneE164), strings.TrimSpace(reasonCode), strings.TrimSpace(pincode), seconds).Scan(&exists)
+	return exists, err
+}
+
+func (r *PgxRepository) MatchASHAByLocation(ctx context.Context, villageOrWard, blockOrTaluk, district, state, pincode string, latitude, longitude *float64) (models.ASHAMatchResult, error) {
+	var out models.ASHAMatchResult
+
+	err := r.pool.QueryRow(ctx, `
+SELECT ap.user_id::text, 'pincode'::text AS assigned_method, 100.0::numeric AS assignment_score
+FROM asha_profiles ap
+JOIN users u ON u.user_id = ap.user_id
+WHERE u.role = 'asha_worker'
+  AND u.is_active = TRUE
+  AND COALESCE(ap.service_pincode, '') <> ''
+  AND ap.service_pincode = $1
+ORDER BY ap.updated_at ASC
+LIMIT 1`, strings.TrimSpace(pincode)).Scan(&out.ASHAUserID, &out.AssignedMethod, &out.AssignmentScore)
+	if err == nil {
+		return out, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return models.ASHAMatchResult{}, err
+	}
+
+	err = r.pool.QueryRow(ctx, `
+SELECT ap.user_id::text, 'village'::text AS assigned_method, 92.0::numeric AS assignment_score
+FROM asha_profiles ap
+JOIN users u ON u.user_id = ap.user_id
+WHERE u.role = 'asha_worker'
+  AND u.is_active = TRUE
+  AND LOWER(COALESCE(ap.assigned_village, '')) = LOWER($1)
+  AND LOWER(COALESCE(ap.assigned_block, '')) = LOWER($2)
+  AND LOWER(COALESCE(ap.assigned_district, '')) = LOWER($3)
+  AND LOWER(COALESCE(ap.state, '')) = LOWER($4)
+ORDER BY ap.updated_at ASC
+LIMIT 1`,
+		strings.TrimSpace(villageOrWard),
+		strings.TrimSpace(blockOrTaluk),
+		strings.TrimSpace(district),
+		strings.TrimSpace(state),
+	).Scan(&out.ASHAUserID, &out.AssignedMethod, &out.AssignmentScore)
+	if err == nil {
+		return out, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return models.ASHAMatchResult{}, err
+	}
+
+	if latitude != nil && longitude != nil {
+		err = r.pool.QueryRow(ctx, `
+SELECT ap.user_id::text,
+       'geo'::text AS assigned_method,
+       GREATEST(60.0::numeric, (95.0 - (dist.km * 2.5))::numeric) AS assignment_score
+FROM asha_profiles ap
+JOIN users u ON u.user_id = ap.user_id
+CROSS JOIN LATERAL (
+  SELECT 6371 * ACOS(
+    LEAST(
+      1.0,
+      GREATEST(
+        -1.0,
+        COS(RADIANS($1)) * COS(RADIANS(ap.service_latitude)) * COS(RADIANS(ap.service_longitude) - RADIANS($2))
+        + SIN(RADIANS($1)) * SIN(RADIANS(ap.service_latitude))
+      )
+    )
+  ) AS km
+) dist
+WHERE u.role = 'asha_worker'
+  AND u.is_active = TRUE
+  AND ap.service_latitude IS NOT NULL
+  AND ap.service_longitude IS NOT NULL
+  AND dist.km <= COALESCE(ap.service_radius_km, 10)
+ORDER BY dist.km ASC, ap.updated_at ASC
+LIMIT 1`, *latitude, *longitude).Scan(&out.ASHAUserID, &out.AssignedMethod, &out.AssignmentScore)
+		if err == nil {
+			return out, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return models.ASHAMatchResult{}, err
+		}
+	}
+
+	err = r.pool.QueryRow(ctx, `
+WITH candidate AS (
+  SELECT ap.user_id,
+         COUNT(a.appointment_id) FILTER (
+           WHERE a.status IN ('requested', 'assigned', 'accepted', 'in_progress')
+         ) AS active_load
+  FROM asha_profiles ap
+  JOIN users u ON u.user_id = ap.user_id
+  LEFT JOIN asha_appointments a ON a.asha_user_id = ap.user_id
+  WHERE u.role = 'asha_worker'
+    AND u.is_active = TRUE
+    AND LOWER(COALESCE(ap.assigned_district, '')) = LOWER($1)
+    AND LOWER(COALESCE(ap.state, '')) = LOWER($2)
+  GROUP BY ap.user_id
+)
+SELECT user_id::text, 'district'::text AS assigned_method, 70.0::numeric AS assignment_score
+FROM candidate
+ORDER BY active_load ASC, user_id ASC
+LIMIT 1`, strings.TrimSpace(district), strings.TrimSpace(state)).Scan(&out.ASHAUserID, &out.AssignedMethod, &out.AssignmentScore)
+	if err != nil {
+		return models.ASHAMatchResult{}, err
+	}
+	return out, nil
+}
+
+func (r *PgxRepository) CreateASHAAppointment(ctx context.Context, appt models.ASHAAppointment) (models.ASHAAppointment, error) {
+	var out models.ASHAAppointment
+	err := r.pool.QueryRow(ctx, `
+INSERT INTO asha_appointments (
+  patient_id, asha_user_id, status, reason_code, reason_text, preferred_date, preferred_time_slot,
+  visit_type, source_channel, requestor_name, requestor_phone, requestor_email,
+  address_line1, address_line2, village_or_ward, gram_panchayat, block_or_taluk, district, state, pincode,
+  latitude, longitude, assigned_method, assignment_score, encounter_id, notes
+)
+VALUES (
+  $1, $2, $3::asha_appointment_status, $4, $5, NULLIF($6, '')::date, NULLIF($7, ''),
+  $8, $9, $10, $11, $12,
+  $13, $14, $15, $16, $17, $18, $19, $20,
+  $21, $22, $23, $24, NULLIF($25, '')::uuid, COALESCE($26::jsonb, '{}'::jsonb)
+)
+RETURNING appointment_id::text, patient_id::text, COALESCE(asha_user_id::text, ''), status::text, reason_code,
+  COALESCE(reason_text, ''), COALESCE(to_char(preferred_date, 'YYYY-MM-DD'), ''), COALESCE(preferred_time_slot, ''),
+  visit_type, source_channel, requestor_name, requestor_phone, COALESCE(requestor_email, ''),
+  address_line1, COALESCE(address_line2, ''), COALESCE(village_or_ward, ''), COALESCE(gram_panchayat, ''),
+  COALESCE(block_or_taluk, ''), district, state, pincode, COALESCE(latitude, 0), COALESCE(longitude, 0),
+  COALESCE(assigned_method, ''), COALESCE(assignment_score, 0), COALESCE(encounter_id::text, ''), notes::text,
+  created_at, updated_at`,
+		appt.PatientID,
+		nullIfEmpty(appt.ASHAUserID),
+		appt.Status,
+		strings.TrimSpace(appt.ReasonCode),
+		nullIfEmpty(appt.ReasonText),
+		nullIfEmpty(appt.PreferredDate),
+		nullIfEmpty(appt.PreferredTimeSlot),
+		nullIfEmpty(appt.VisitType),
+		nullIfEmpty(appt.SourceChannel),
+		strings.TrimSpace(appt.RequestorName),
+		strings.TrimSpace(appt.RequestorPhone),
+		nullIfEmpty(appt.RequestorEmail),
+		strings.TrimSpace(appt.AddressLine1),
+		nullIfEmpty(appt.AddressLine2),
+		nullIfEmpty(appt.VillageOrWard),
+		nullIfEmpty(appt.GramPanchayat),
+		nullIfEmpty(appt.BlockOrTaluk),
+		strings.TrimSpace(appt.District),
+		strings.TrimSpace(appt.State),
+		strings.TrimSpace(appt.Pincode),
+		nullIfZeroFloat(appt.Latitude),
+		nullIfZeroFloat(appt.Longitude),
+		nullIfEmpty(appt.AssignedMethod),
+		nullIfZeroFloat(appt.AssignmentScore),
+		nullIfEmpty(appt.EncounterID),
+		defaultJSON(appt.Notes, "{}"),
+	).Scan(
+		&out.AppointmentID,
+		&out.PatientID,
+		&out.ASHAUserID,
+		&out.Status,
+		&out.ReasonCode,
+		&out.ReasonText,
+		&out.PreferredDate,
+		&out.PreferredTimeSlot,
+		&out.VisitType,
+		&out.SourceChannel,
+		&out.RequestorName,
+		&out.RequestorPhone,
+		&out.RequestorEmail,
+		&out.AddressLine1,
+		&out.AddressLine2,
+		&out.VillageOrWard,
+		&out.GramPanchayat,
+		&out.BlockOrTaluk,
+		&out.District,
+		&out.State,
+		&out.Pincode,
+		&out.Latitude,
+		&out.Longitude,
+		&out.AssignedMethod,
+		&out.AssignmentScore,
+		&out.EncounterID,
+		&out.Notes,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) ListASHAAppointments(ctx context.Context, filter models.ASHAAppointmentListFilter) ([]models.ASHAAppointment, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT appointment_id::text, patient_id::text, COALESCE(asha_user_id::text, ''), status::text, reason_code,
+  COALESCE(reason_text, ''), COALESCE(to_char(preferred_date, 'YYYY-MM-DD'), ''), COALESCE(preferred_time_slot, ''),
+  visit_type, source_channel, requestor_name, requestor_phone, COALESCE(requestor_email, ''),
+  address_line1, COALESCE(address_line2, ''), COALESCE(village_or_ward, ''), COALESCE(gram_panchayat, ''),
+  COALESCE(block_or_taluk, ''), district, state, pincode, COALESCE(latitude, 0), COALESCE(longitude, 0),
+  COALESCE(assigned_method, ''), COALESCE(assignment_score, 0), COALESCE(encounter_id::text, ''), notes::text,
+  created_at, updated_at
+FROM asha_appointments
+WHERE asha_user_id::text = $1
+  AND ($2 = '' OR status::text = $2)
+  AND ($3 = '' OR COALESCE(preferred_date::text, created_at::date::text) >= $3)
+  AND ($4 = '' OR COALESCE(preferred_date::text, created_at::date::text) <= $4)
+ORDER BY
+  CASE status
+    WHEN 'requested' THEN 1
+    WHEN 'assigned' THEN 2
+    WHEN 'accepted' THEN 3
+    WHEN 'in_progress' THEN 4
+    WHEN 'completed' THEN 9
+    WHEN 'cancelled' THEN 10
+    ELSE 8
+  END ASC,
+  COALESCE(preferred_date, created_at::date) ASC,
+  created_at DESC
+LIMIT $5`,
+		strings.TrimSpace(filter.ASHAUserID),
+		strings.TrimSpace(filter.Status),
+		strings.TrimSpace(filter.FromDate),
+		strings.TrimSpace(filter.ToDate),
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]models.ASHAAppointment, 0, limit)
+	for rows.Next() {
+		var item models.ASHAAppointment
+		if err := rows.Scan(
+			&item.AppointmentID,
+			&item.PatientID,
+			&item.ASHAUserID,
+			&item.Status,
+			&item.ReasonCode,
+			&item.ReasonText,
+			&item.PreferredDate,
+			&item.PreferredTimeSlot,
+			&item.VisitType,
+			&item.SourceChannel,
+			&item.RequestorName,
+			&item.RequestorPhone,
+			&item.RequestorEmail,
+			&item.AddressLine1,
+			&item.AddressLine2,
+			&item.VillageOrWard,
+			&item.GramPanchayat,
+			&item.BlockOrTaluk,
+			&item.District,
+			&item.State,
+			&item.Pincode,
+			&item.Latitude,
+			&item.Longitude,
+			&item.AssignedMethod,
+			&item.AssignmentScore,
+			&item.EncounterID,
+			&item.Notes,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *PgxRepository) GetASHAAppointmentByID(ctx context.Context, appointmentID string) (models.ASHAAppointment, error) {
+	return r.getASHAAppointment(ctx, appointmentID, "")
+}
+
+func (r *PgxRepository) GetASHAAppointmentByIDForASHA(ctx context.Context, appointmentID, ashaUserID string) (models.ASHAAppointment, error) {
+	return r.getASHAAppointment(ctx, appointmentID, ashaUserID)
+}
+
+func (r *PgxRepository) getASHAAppointment(ctx context.Context, appointmentID, ashaUserID string) (models.ASHAAppointment, error) {
+	var out models.ASHAAppointment
+	err := r.pool.QueryRow(ctx, `
+SELECT appointment_id::text, patient_id::text, COALESCE(asha_user_id::text, ''), status::text, reason_code,
+  COALESCE(reason_text, ''), COALESCE(to_char(preferred_date, 'YYYY-MM-DD'), ''), COALESCE(preferred_time_slot, ''),
+  visit_type, source_channel, requestor_name, requestor_phone, COALESCE(requestor_email, ''),
+  address_line1, COALESCE(address_line2, ''), COALESCE(village_or_ward, ''), COALESCE(gram_panchayat, ''),
+  COALESCE(block_or_taluk, ''), district, state, pincode, COALESCE(latitude, 0), COALESCE(longitude, 0),
+  COALESCE(assigned_method, ''), COALESCE(assignment_score, 0), COALESCE(encounter_id::text, ''), notes::text,
+  created_at, updated_at
+FROM asha_appointments
+WHERE appointment_id::text = $1
+  AND ($2 = '' OR asha_user_id::text = $2)
+LIMIT 1`, strings.TrimSpace(appointmentID), strings.TrimSpace(ashaUserID)).Scan(
+		&out.AppointmentID,
+		&out.PatientID,
+		&out.ASHAUserID,
+		&out.Status,
+		&out.ReasonCode,
+		&out.ReasonText,
+		&out.PreferredDate,
+		&out.PreferredTimeSlot,
+		&out.VisitType,
+		&out.SourceChannel,
+		&out.RequestorName,
+		&out.RequestorPhone,
+		&out.RequestorEmail,
+		&out.AddressLine1,
+		&out.AddressLine2,
+		&out.VillageOrWard,
+		&out.GramPanchayat,
+		&out.BlockOrTaluk,
+		&out.District,
+		&out.State,
+		&out.Pincode,
+		&out.Latitude,
+		&out.Longitude,
+		&out.AssignedMethod,
+		&out.AssignmentScore,
+		&out.EncounterID,
+		&out.Notes,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	return out, err
+}
+
+func (r *PgxRepository) UpdateASHAAppointmentStatus(ctx context.Context, appointmentID, status, updatedBy string) error {
+	_, err := r.pool.Exec(ctx, `
+UPDATE asha_appointments
+SET status = $2::asha_appointment_status,
+    updated_at = NOW()
+WHERE appointment_id::text = $1`, strings.TrimSpace(appointmentID), strings.TrimSpace(status))
+	if err != nil {
+		return err
+	}
+	return r.LogASHAAppointmentEvent(ctx, models.ASHAAppointmentEvent{
+		AppointmentID: appointmentID,
+		EventType:     strings.TrimSpace(status),
+		EventPayload:  `{"source":"status_patch"}`,
+		CreatedBy:     strings.TrimSpace(updatedBy),
+	})
+}
+
+func (r *PgxRepository) CompleteASHAAppointment(ctx context.Context, appointmentID, encounterID, updatedBy string) error {
+	_, err := r.pool.Exec(ctx, `
+UPDATE asha_appointments
+SET status = 'completed'::asha_appointment_status,
+    encounter_id = COALESCE(NULLIF($2, '')::uuid, encounter_id),
+    updated_at = NOW()
+WHERE appointment_id::text = $1`, strings.TrimSpace(appointmentID), strings.TrimSpace(encounterID))
+	if err != nil {
+		return err
+	}
+	return r.LogASHAAppointmentEvent(ctx, models.ASHAAppointmentEvent{
+		AppointmentID: appointmentID,
+		EventType:     "completed",
+		EventPayload:  fmt.Sprintf(`{"encounter_id":"%s"}`, strings.TrimSpace(encounterID)),
+		CreatedBy:     strings.TrimSpace(updatedBy),
+	})
+}
+
+func (r *PgxRepository) LogASHAAppointmentEvent(ctx context.Context, evt models.ASHAAppointmentEvent) error {
+	_, err := r.pool.Exec(ctx, `
+INSERT INTO asha_appointment_events (appointment_id, event_type, event_payload, created_by)
+VALUES ($1::uuid, $2, COALESCE($3::jsonb, '{}'::jsonb), NULLIF($4, ''))`,
+		strings.TrimSpace(evt.AppointmentID),
+		strings.TrimSpace(evt.EventType),
+		defaultJSON(evt.EventPayload, "{}"),
+		strings.TrimSpace(evt.CreatedBy),
+	)
+	return err
+}
+
 func nullIfEmpty(v string) any {
 	if v == "" {
 		return nil
@@ -1011,6 +1460,13 @@ func defaultJSON(v, fallback string) string {
 
 func nullIfZeroInt(v int) any {
 	if v <= 0 {
+		return nil
+	}
+	return v
+}
+
+func nullIfZeroFloat(v float64) any {
+	if v == 0 {
 		return nil
 	}
 	return v

@@ -102,6 +102,10 @@ type ASHAProfile struct {
 	AssignedVillage   string    `json:"assigned_village,omitempty"`
 	AssignedBlock     string    `json:"assigned_block,omitempty"`
 	AssignedDistrict  string    `json:"assigned_district,omitempty"`
+	ServicePincode    string    `json:"service_pincode,omitempty"`
+	ServiceLatitude   float64   `json:"service_latitude,omitempty"`
+	ServiceLongitude  float64   `json:"service_longitude,omitempty"`
+	ServiceRadiusKM   float64   `json:"service_radius_km,omitempty"`
 	State             string    `json:"state,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
@@ -184,4 +188,59 @@ type PatientRemark struct {
 	VoiceRecordingURL  string    `json:"voice_recording_url,omitempty"`
 	Visibility         string    `json:"visibility"`
 	CreatedAt          time.Time `json:"created_at"`
+}
+
+type ASHAAppointment struct {
+	AppointmentID    string    `json:"appointment_id"`
+	PatientID        string    `json:"patient_id"`
+	ASHAUserID       string    `json:"asha_user_id,omitempty"`
+	Status           string    `json:"status"`
+	ReasonCode       string    `json:"reason_code"`
+	ReasonText       string    `json:"reason_text,omitempty"`
+	PreferredDate    string    `json:"preferred_date,omitempty"`
+	PreferredTimeSlot string   `json:"preferred_time_slot,omitempty"`
+	VisitType        string    `json:"visit_type"`
+	SourceChannel    string    `json:"source_channel"`
+	RequestorName    string    `json:"requestor_name"`
+	RequestorPhone   string    `json:"requestor_phone"`
+	RequestorEmail   string    `json:"requestor_email,omitempty"`
+	AddressLine1     string    `json:"address_line1"`
+	AddressLine2     string    `json:"address_line2,omitempty"`
+	VillageOrWard    string    `json:"village_or_ward,omitempty"`
+	GramPanchayat    string    `json:"gram_panchayat,omitempty"`
+	BlockOrTaluk     string    `json:"block_or_taluk,omitempty"`
+	District         string    `json:"district"`
+	State            string    `json:"state"`
+	Pincode          string    `json:"pincode"`
+	Latitude         float64   `json:"latitude,omitempty"`
+	Longitude        float64   `json:"longitude,omitempty"`
+	AssignedMethod   string    `json:"assigned_method,omitempty"`
+	AssignmentScore  float64   `json:"assignment_score,omitempty"`
+	EncounterID      string    `json:"encounter_id,omitempty"`
+	Notes            string    `json:"notes,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type ASHAAppointmentEvent struct {
+	EventID       string    `json:"event_id"`
+	AppointmentID string    `json:"appointment_id"`
+	EventType     string    `json:"event_type"`
+	EventPayload  string    `json:"event_payload"`
+	CreatedBy     string    `json:"created_by,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type ASHAMatchResult struct {
+	ASHAUserID      string  `json:"asha_user_id"`
+	AssignedMethod  string  `json:"assigned_method"`
+	AssignmentScore float64 `json:"assignment_score"`
+}
+
+type ASHAAppointmentListFilter struct {
+	ASHAUserID string `json:"asha_user_id"`
+	FromDate   string `json:"from_date,omitempty"`
+	ToDate     string `json:"to_date,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Limit      int    `json:"limit"`
 }

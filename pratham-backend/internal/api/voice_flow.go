@@ -1546,8 +1546,8 @@ func fetchTranscriptResult(ctx context.Context, transcriptURL string) (transcrip
 		Results struct {
 			LanguageCode string `json:"language_code"`
 			LanguageIdentification []struct {
-				LanguageCode string  `json:"language_code"`
-				Score        float64 `json:"score"`
+				LanguageCode string `json:"language_code"`
+				Score        string `json:"score"`
 			} `json:"language_identification"`
 			Transcripts []struct {
 				Transcript string `json:"transcript"`
@@ -1571,8 +1571,12 @@ func fetchTranscriptResult(ctx context.Context, transcriptURL string) (transcrip
 		bestScore := -1.0
 		bestCode := result.DetectedLanguage
 		for _, item := range parsed.Results.LanguageIdentification {
-			if item.Score > bestScore {
-				bestScore = item.Score
+			score, parseErr := strconv.ParseFloat(strings.TrimSpace(item.Score), 64)
+			if parseErr != nil {
+				continue
+			}
+			if score > bestScore {
+				bestScore = score
 				bestCode = strings.TrimSpace(item.LanguageCode)
 			}
 		}

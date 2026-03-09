@@ -12,6 +12,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../core/widgets/app_select_field.dart';
 import '../../../../data/network/api_client.dart';
+import '../../../shared/prefill/demo_prefill_data.dart';
+import '../../../shared/widgets/demo_prefill_button.dart';
 import '../widgets/encounter_ai_details_card.dart';
 import '../widgets/patient_form_section.dart';
 import '../widgets/patient_result_tile.dart';
@@ -1095,6 +1097,32 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
     }
   }
 
+  void _prefillPatientDemoData() {
+    final preset = DemoPrefillData.patient;
+    setState(() {
+      _firstNameCtrl.text = preset.firstName;
+      _middleNameCtrl.text = preset.middleName;
+      _lastNameCtrl.text = preset.lastName;
+      _gender = preset.gender;
+      _phoneCtrl.text = preset.phoneNumber;
+      _dobCtrl.text = preset.dateOfBirth;
+      _ageCtrl.text = preset.ageYears;
+      _abhaCtrl.text = preset.abhaNumber;
+      _abhaAddressCtrl.text = preset.abhaAddress;
+      _emailCtrl.text = preset.email;
+      _address1Ctrl.text = preset.addressLine1;
+      _address2Ctrl.text = preset.addressLine2;
+      _villageCtrl.text = preset.villageOrWard;
+      _gramCtrl.text = preset.gramPanchayat;
+      _blockCtrl.text = preset.blockOrTaluk;
+      _districtCtrl.text = preset.district;
+      _stateCtrl.text = preset.state;
+      _pincodeCtrl.text = preset.pincode;
+      _landmarkCtrl.text = preset.landmark;
+      _error = null;
+    });
+  }
+
   Future<void> _submit() async {
     final form = _formKey.currentState;
     if (form == null || !form.validate()) {
@@ -1186,18 +1214,24 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    Text(
+                      _editing ? 'Edit Patient' : 'Add New Patient',
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
+                    ),
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          _editing ? 'Edit Patient' : 'Add New Patient',
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
+                        DemoPrefillButton(
+                          onPressed: _prefillPatientDemoData,
+                          label: 'Prefill',
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded, color: AppColors.lightTextPrimary),
+                          tooltip: 'Close',
                         ),
                       ],
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded, color: AppColors.lightTextPrimary),
-                      tooltip: 'Close',
                     ),
                   ],
                 ),

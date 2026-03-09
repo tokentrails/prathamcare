@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/repositories/cognito_auth_repository.dart';
+import '../../../shared/prefill/demo_prefill_data.dart';
+import '../../../shared/widgets/demo_prefill_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,7 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final CognitoAuthRepository _authRepository = CognitoAuthRepository.instance;
   static const Duration _authTimeout = Duration(seconds: 20);
 
-  int selectedRole = 0;
+  int selectedRole = 1;
   bool rememberMe = false;
   bool obscurePassword = true;
   bool isSigningIn = false;
@@ -46,7 +48,9 @@ class _LoginScreenState extends State<LoginScreen> {
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight - 48),
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 48,
+                ),
                 child: IntrinsicHeight(
                   child: Column(
                     children: [
@@ -69,6 +73,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                   height: 1.45,
                                 ),
                               ),
+                              const SizedBox(height: 12),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: DemoPrefillButton(
+                                  onPressed: _prefillLoginDemoData,
+                                ),
+                              ),
                               const SizedBox(height: 24),
                               _buildInputLabel('Email or Medical ID'),
                               const SizedBox(height: 6),
@@ -84,16 +95,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                 controller: passwordController,
                                 hint: '••••••••',
                                 prefixIcon: Icons.lock_outline_rounded,
-                                suffixIcon:
-                                    obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                suffixIcon: obscurePassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
                                 obscureText: obscurePassword,
-                                onSuffixTap: () => setState(() => obscurePassword = !obscurePassword),
+                                onSuffixTap: () => setState(
+                                  () => obscurePassword = !obscurePassword,
+                                ),
                               ),
                               const SizedBox(height: 12),
                               Row(
                                 children: [
                                   InkWell(
-                                    onTap: () => setState(() => rememberMe = !rememberMe),
+                                    onTap: () => setState(
+                                      () => rememberMe = !rememberMe,
+                                    ),
                                     borderRadius: BorderRadius.circular(20),
                                     child: Row(
                                       children: [
@@ -102,11 +118,19 @@ class _LoginScreenState extends State<LoginScreen> {
                                           height: 20,
                                           decoration: BoxDecoration(
                                             color: Colors.white,
-                                            border: Border.all(color: const Color(0xFFCBD5E1)),
-                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: const Color(0xFFCBD5E1),
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
                                           ),
                                           child: rememberMe
-                                              ? const Icon(Icons.check, size: 14, color: AppColors.primary)
+                                              ? const Icon(
+                                                  Icons.check,
+                                                  size: 14,
+                                                  color: AppColors.primary,
+                                                )
                                               : null,
                                         ),
                                         const SizedBox(width: 8),
@@ -127,7 +151,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                       foregroundColor: AppColors.accent,
                                       padding: EdgeInsets.zero,
                                       minimumSize: const Size(0, 0),
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
                                     child: const Text(
                                       'Forgot Password?',
@@ -145,7 +170,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 const SizedBox(height: 10),
                                 Text(
                                   signInError!,
-                                  style: const TextStyle(color: AppColors.lightError, fontSize: 13),
+                                  style: const TextStyle(
+                                    color: AppColors.lightError,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ],
                               const SizedBox(height: 24),
@@ -190,7 +218,8 @@ class _LoginScreenState extends State<LoginScreen> {
       height: outerHeight,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final segmentWidth = (constraints.maxWidth - (inset * 2) - (gap * 2)) / 3;
+          final segmentWidth =
+              (constraints.maxWidth - (inset * 2) - (gap * 2)) / 3;
           final selectedLeft = inset + selectedRole * (segmentWidth + gap);
 
           return ClipRRect(
@@ -199,32 +228,32 @@ class _LoginScreenState extends State<LoginScreen> {
               color: const Color(0x99E2E8F0),
               child: Stack(
                 children: [
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 140),
-                  curve: Curves.easeOut,
-                  top: inset,
-                  left: selectedLeft,
-                  width: segmentWidth,
-                  height: segmentHeight,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(segmentRadius),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x0D000000),
-                          blurRadius: 0,
-                          spreadRadius: 1,
-                        ),
-                        BoxShadow(
-                          color: Color(0x0D000000),
-                          blurRadius: 2,
-                          offset: Offset(0, 1),
-                        ),
-                      ],
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeOut,
+                    top: inset,
+                    left: selectedLeft,
+                    width: segmentWidth,
+                    height: segmentHeight,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(segmentRadius),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x0D000000),
+                            blurRadius: 0,
+                            spreadRadius: 1,
+                          ),
+                          BoxShadow(
+                            color: Color(0x0D000000),
+                            blurRadius: 2,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
                   Positioned.fill(
                     child: Padding(
                       padding: const EdgeInsets.all(inset),
@@ -235,12 +264,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             Expanded(
                               child: InkWell(
                                 onTap: () => setState(() => selectedRole = i),
-                                borderRadius: BorderRadius.circular(segmentRadius),
+                                borderRadius: BorderRadius.circular(
+                                  segmentRadius,
+                                ),
                                 child: Center(
                                   child: Text(
                                     roles[i],
                                     style: TextStyle(
-                                      color: i == selectedRole ? AppColors.primary : const Color(0xFF475569),
+                                      color: i == selectedRole
+                                          ? AppColors.primary
+                                          : const Color(0xFF475569),
                                       fontSize: 14,
                                       height: 20 / 14,
                                       fontWeight: FontWeight.w600,
@@ -331,7 +364,11 @@ class _LoginScreenState extends State<LoginScreen> {
               borderRadius: BorderRadius.circular(20),
               child: Padding(
                 padding: const EdgeInsets.all(4),
-                child: Icon(suffixIcon, size: 20, color: AppColors.lightPlaceholder),
+                child: Icon(
+                  suffixIcon,
+                  size: 20,
+                  color: AppColors.lightPlaceholder,
+                ),
               ),
             ),
             const SizedBox(width: 14),
@@ -354,6 +391,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  void _prefillLoginDemoData() {
+    final preset = DemoPrefillData.loginForRoleIndex(selectedRole);
+    setState(() {
+      emailController.text = preset.username;
+      passwordController.text = preset.password;
+      signInError = null;
+    });
+  }
+
   Future<void> _handleCognitoSignIn() async {
     setState(() {
       isSigningIn = true;
@@ -373,11 +419,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final signInOutcome = await _authRepository
           .signIn(username: username, password: password)
-          .timeout(_authTimeout, onTimeout: () {
-        throw Exception(
-          'Sign-in timed out. Check internet/Cognito config and try again.',
-        );
-      });
+          .timeout(
+            _authTimeout,
+            onTimeout: () {
+              throw Exception(
+                'Sign-in timed out. Check internet/Cognito config and try again.',
+              );
+            },
+          );
       if (!signInOutcome.isSignedIn) {
         if (signInOutcome.requiresNewPassword) {
           final challengeInput = await _collectNewPasswordChallengeInput();
@@ -390,11 +439,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 confirmationValue: challengeInput.newPassword,
                 fullName: challengeInput.fullName,
               )
-              .timeout(_authTimeout, onTimeout: () {
-            throw Exception(
-              'Password challenge timed out. Please retry.',
-            );
-          });
+              .timeout(
+                _authTimeout,
+                onTimeout: () {
+                  throw Exception(
+                    'Password challenge timed out. Please retry.',
+                  );
+                },
+              );
           if (!confirmOutcome.isSignedIn) {
             throw Exception(
               'Challenge step pending: ${confirmOutcome.nextStep}. Please complete the required step in Cognito.',
@@ -402,13 +454,16 @@ class _LoginScreenState extends State<LoginScreen> {
           }
           await _authRepository.updateDisplayName(challengeInput.fullName);
         } else {
-          throw Exception('Additional auth challenge required: ${signInOutcome.nextStep}.');
+          throw Exception(
+            'Additional auth challenge required: ${signInOutcome.nextStep}.',
+          );
         }
       }
 
-      final tokenRole = await _authRepository
-          .getRoleFromIdToken()
-          .timeout(_authTimeout, onTimeout: () => null);
+      final tokenRole = await _authRepository.getRoleFromIdToken().timeout(
+        _authTimeout,
+        onTimeout: () => null,
+      );
       _syncSelectedRoleFromToken(tokenRole);
 
       if (!mounted) {
@@ -449,17 +504,24 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final start = await _authRepository
           .startForgotPassword(username: username)
-          .timeout(_authTimeout, onTimeout: () {
-        throw Exception(
-          'Reset password request timed out. Please try again.',
-        );
-      });
+          .timeout(
+            _authTimeout,
+            onTimeout: () {
+              throw Exception(
+                'Reset password request timed out. Please try again.',
+              );
+            },
+          );
       if (start.isComplete) {
         if (!mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password reset is already complete. Please sign in.')),
+          const SnackBar(
+            content: Text(
+              'Password reset is already complete. Please sign in.',
+            ),
+          ),
         );
         return;
       }
@@ -478,16 +540,23 @@ class _LoginScreenState extends State<LoginScreen> {
             confirmationCode: reset.code,
             newPassword: reset.newPassword,
           )
-          .timeout(_authTimeout, onTimeout: () {
-        throw Exception(
-          'Password reset confirmation timed out. Please retry.',
-        );
-      });
+          .timeout(
+            _authTimeout,
+            onTimeout: () {
+              throw Exception(
+                'Password reset confirmation timed out. Please retry.',
+              );
+            },
+          );
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password reset successful. Please sign in with new password.')),
+        const SnackBar(
+          content: Text(
+            'Password reset successful. Please sign in with new password.',
+          ),
+        ),
       );
       setState(() {
         signInError = null;
@@ -502,7 +571,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<_NewPasswordChallengeInput?> _collectNewPasswordChallengeInput() async {
+  Future<_NewPasswordChallengeInput?>
+  _collectNewPasswordChallengeInput() async {
     final fullNameController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
@@ -548,7 +618,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 8),
                       Text(
                         validationError!,
-                        style: const TextStyle(color: AppColors.lightError, fontSize: 12),
+                        style: const TextStyle(
+                          color: AppColors.lightError,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ],
@@ -566,20 +639,30 @@ class _LoginScreenState extends State<LoginScreen> {
                     final confirm = confirmPasswordController.text.trim();
 
                     if (name.isEmpty) {
-                      setDialogState(() => validationError = 'Full name is required.');
+                      setDialogState(
+                        () => validationError = 'Full name is required.',
+                      );
                       return;
                     }
                     if (pass.length < 8) {
-                      setDialogState(() => validationError = 'Password must be at least 8 characters.');
+                      setDialogState(
+                        () => validationError =
+                            'Password must be at least 8 characters.',
+                      );
                       return;
                     }
                     if (pass != confirm) {
-                      setDialogState(() => validationError = 'Passwords do not match.');
+                      setDialogState(
+                        () => validationError = 'Passwords do not match.',
+                      );
                       return;
                     }
 
                     Navigator.of(context).pop(
-                      _NewPasswordChallengeInput(fullName: name, newPassword: pass),
+                      _NewPasswordChallengeInput(
+                        fullName: name,
+                        newPassword: pass,
+                      ),
                     );
                   },
                   child: const Text('Submit'),
@@ -597,7 +680,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return result;
   }
 
-  Future<_ForgotPasswordInput?> _collectForgotPasswordInput(PasswordResetStartOutcome start) async {
+  Future<_ForgotPasswordInput?> _collectForgotPasswordInput(
+    PasswordResetStartOutcome start,
+  ) async {
     final codeController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
@@ -621,7 +706,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       start.destination.isNotEmpty
                           ? 'Verification code sent via ${start.deliveryMedium} to ${start.destination}'
                           : 'Enter the verification code and your new password.',
-                      style: const TextStyle(fontSize: 13, color: AppColors.lightTextMuted),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.lightTextMuted,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     TextField(
@@ -650,7 +738,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 8),
                       Text(
                         validationError!,
-                        style: const TextStyle(color: AppColors.lightError, fontSize: 12),
+                        style: const TextStyle(
+                          color: AppColors.lightError,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ],
@@ -668,21 +759,29 @@ class _LoginScreenState extends State<LoginScreen> {
                     final confirm = confirmPasswordController.text.trim();
 
                     if (code.isEmpty) {
-                      setDialogState(() => validationError = 'Verification code is required.');
+                      setDialogState(
+                        () =>
+                            validationError = 'Verification code is required.',
+                      );
                       return;
                     }
                     if (pass.length < 8) {
-                      setDialogState(() => validationError = 'Password must be at least 8 characters.');
+                      setDialogState(
+                        () => validationError =
+                            'Password must be at least 8 characters.',
+                      );
                       return;
                     }
                     if (pass != confirm) {
-                      setDialogState(() => validationError = 'Passwords do not match.');
+                      setDialogState(
+                        () => validationError = 'Passwords do not match.',
+                      );
                       return;
                     }
 
-                    Navigator.of(context).pop(
-                      _ForgotPasswordInput(code: code, newPassword: pass),
-                    );
+                    Navigator.of(
+                      context,
+                    ).pop(_ForgotPasswordInput(code: code, newPassword: pass));
                   },
                   child: const Text('Reset'),
                 ),
@@ -813,10 +912,7 @@ class _NewPasswordChallengeInput {
 }
 
 class _ForgotPasswordInput {
-  const _ForgotPasswordInput({
-    required this.code,
-    required this.newPassword,
-  });
+  const _ForgotPasswordInput({required this.code, required this.newPassword});
 
   final String code;
   final String newPassword;

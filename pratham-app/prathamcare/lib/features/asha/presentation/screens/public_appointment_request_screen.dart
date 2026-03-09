@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/app_pill_button.dart';
 import '../../../../data/network/api_client.dart';
+import '../../../shared/prefill/demo_prefill_data.dart';
+import '../../../shared/widgets/demo_prefill_button.dart';
 import '../widgets/patient_form_section.dart';
 
 class PublicAppointmentRequestScreen extends StatefulWidget {
@@ -114,6 +116,29 @@ class _PublicAppointmentRequestScreenState extends State<PublicAppointmentReques
     }
   }
 
+  void _prefillDemoData() {
+    final preset = DemoPrefillData.publicAppointment;
+    setState(() {
+      _name.text = preset.fullName;
+      _phone.text = preset.phone;
+      _email.text = preset.email;
+      _abha.text = preset.abhaId;
+      _reasonCode = preset.reasonCode;
+      _reasonText.text = preset.reasonText;
+      _preferredDate = DateTime.now().add(const Duration(days: 1));
+      _timeSlot = preset.timeSlot;
+      _address1.text = preset.addressLine1;
+      _address2.text = preset.addressLine2;
+      _village.text = preset.villageOrWard;
+      _block.text = preset.blockOrTaluk;
+      _district.text = preset.district;
+      _state.text = preset.state;
+      _pincode.text = preset.pincode;
+      _error = null;
+      _result = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -132,6 +157,11 @@ class _PublicAppointmentRequestScreenState extends State<PublicAppointmentReques
                 children: [
                   _buildHeaderCard(),
                   const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: DemoPrefillButton(onPressed: _prefillDemoData),
+                  ),
+                  const SizedBox(height: 12),
                   _buildSectionCard(
                     child: PatientFormSection(
                       title: 'Contact Details',

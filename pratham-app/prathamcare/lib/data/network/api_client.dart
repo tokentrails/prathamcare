@@ -115,6 +115,25 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> translateClinicalSummary({
+    String? bearerToken,
+    required String text,
+    required String sourceLanguage,
+    required String targetLanguage,
+  }) async {
+    final token = await _resolveToken(bearerToken);
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/v1/voice/translate-summary'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'text': text,
+        'source_language': sourceLanguage,
+        'target_language': targetLanguage,
+      }),
+    );
+    return _decode(res);
+  }
+
   Future<Map<String, dynamic>> getVoiceTranscriptionStatus({
     String? bearerToken,
     required String voiceJobId,
@@ -500,3 +519,4 @@ class ApiException implements Exception {
   @override
   String toString() => 'ApiException($statusCode, $code): $message';
 }
+

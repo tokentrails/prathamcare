@@ -215,6 +215,8 @@ func (h *Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest
 		})
 	case method == http.MethodPost && path == "/api/v1/voice/transcribe":
 		return h.handleVoiceTranscribe(ctx, req)
+	case method == http.MethodPost && path == "/api/v1/voice/translate-summary":
+		return h.handleVoiceSummaryTranslate(ctx, req)
 	case method == http.MethodGet && strings.HasPrefix(path, "/api/v1/voice/transcribe/"):
 		jobPrefix := "/api/v1/voice/transcribe/job/"
 		if strings.HasPrefix(path, jobPrefix) {
@@ -443,3 +445,4 @@ func corsHeaders(base map[string]string) map[string]string {
 	}
 	return headers
 }
+

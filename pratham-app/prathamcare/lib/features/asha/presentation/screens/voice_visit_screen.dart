@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cross_file/cross_file.dart';
@@ -52,6 +53,13 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     ),
   ];
 
+  static const List<AppSelectOption<String>> _summaryLanguageOptions = [
+    AppSelectOption<String>(label: 'English (Original)', value: 'en'),
+    AppSelectOption<String>(label: 'Kannada', value: 'kn'),
+    AppSelectOption<String>(label: 'Hindi', value: 'hi'),
+  ];
+
+
   final ApiClient _apiClient = ApiClient();
   final AudioRecorder _audioRecorder = AudioRecorder();
   final TextEditingController _patientSearchController = TextEditingController();
@@ -69,6 +77,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   String? _recordingPath;
   String _recordingExtension = 'wav';
   Map<String, dynamic>? _transcribeResponse;
+  Map<String, dynamic>? _transcribeResponseOriginal;
   Map<String, dynamic>? _selectedPatient;
   List<Map<String, dynamic>> _searchResults = const [];
   List<Map<String, dynamic>> _recentPatients = const [];
@@ -77,6 +86,11 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   String? _error;
   String? _patientError;
   String _selectedTranscriptionLanguage = '';
+  String _selectedSummaryLanguage = 'en';
+  String _appliedSummaryLanguage = 'en';
+  bool _summaryTranslating = false;
+  final Map<String, String> _summaryTranslateCache = <String, String>{};
+  String? _summaryTranslateError;
   Timer? _searchDebounce;
 
   @override
@@ -268,6 +282,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       _selectedAudio = file;
       _selectedAudioBytes = bytes;
       _transcribeResponse = null;
+      _transcribeResponseOriginal = null;
+      _resetSummaryTranslationState();
       _voiceJobId = null;
       _transcriptionJobId = null;
       _processingStatus = null;
@@ -302,6 +318,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
           _recording = false;
           _error = null;
           _transcribeResponse = null;
+          _transcribeResponseOriginal = null;
+          _resetSummaryTranslationState();
           _voiceJobId = null;
           _transcriptionJobId = null;
           _processingStatus = null;
@@ -366,6 +384,113 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     return '$base/recorded_visit_$stamp.$extension';
   }
 
+  void _resetSummaryTranslationState() {
+    _selectedSummaryLanguage = 'en';
+    _appliedSummaryLanguage = 'en';
+    _summaryTranslating = false;
+    _summaryTranslateError = null;
+    _summaryTranslateCache.clear();
+  }
+
+  Map<String, dynamic> _cloneResponse(Map<String, dynamic> value) {
+    return (jsonDecode(jsonEncode(value)) as Map).cast<String, dynamic>();
+  }
+
+  String _originalClinicalSummary() {
+    final source = _transcribeResponseOriginal ?? _transcribeResponse;
+    final extracted = (source?['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    return '${extracted['clinical_summary'] ?? ''}'.trim();
+  }
+
+  void _applySummaryToView(String summaryText) {
+    final current = _transcribeResponse;
+    if (current == null) {
+      return;
+    }
+    final next = _cloneResponse(current);
+    final extracted = (next['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    extracted['clinical_summary'] = summaryText;
+    next['extracted_entities'] = extracted;
+    _transcribeResponse = next;
+  }
+
+  Future<void> _translateClinicalSummaryForView() async {
+    final originalSummary = _originalClinicalSummary();
+    if (originalSummary.isEmpty || _transcribeResponse == null) {
+      setState(() {
+        _summaryTranslateError = 'Clinical summary is unavailable for translation.';
+      });
+      return;
+    }
+
+    final targetLanguage = _selectedSummaryLanguage;
+    if (targetLanguage == 'en') {
+      setState(() {
+        _applySummaryToView(originalSummary);
+        _appliedSummaryLanguage = 'en';
+        _summaryTranslateError = null;
+      });
+      return;
+    }
+
+    final cached = _summaryTranslateCache[targetLanguage];
+    if (cached != null && cached.trim().isNotEmpty) {
+      setState(() {
+        _applySummaryToView(cached);
+        _appliedSummaryLanguage = targetLanguage;
+        _summaryTranslateError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _summaryTranslating = true;
+      _summaryTranslateError = null;
+    });
+
+    try {
+      final translated = await _apiClient.translateClinicalSummary(
+        text: originalSummary,
+        sourceLanguage: 'en',
+        targetLanguage: targetLanguage,
+      );
+      final translatedText = '${translated['translated_text'] ?? ''}'.trim();
+      if (translatedText.isEmpty) {
+        throw const FormatException('Empty translation returned by backend.');
+      }
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _summaryTranslateCache[targetLanguage] = translatedText;
+        _applySummaryToView(translatedText);
+        _appliedSummaryLanguage = targetLanguage;
+        _summaryTranslateError = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _summaryTranslateError = '${e.code}: ${e.message}';
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _summaryTranslateError = 'Unable to translate summary right now.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _summaryTranslating = false;
+        });
+      }
+    }
+  }
+
   Future<void> _runAiExtract() async {
     final selectedPatientId = '${_selectedPatient?['patient_id'] ?? ''}'.trim();
     if (selectedPatientId.isEmpty) {
@@ -386,6 +511,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       _loading = true;
       _error = null;
       _transcribeResponse = null;
+      _transcribeResponseOriginal = null;
+      _resetSummaryTranslationState();
       _voiceJobId = null;
       _transcriptionJobId = null;
       _processingStatus = 'uploading';
@@ -475,8 +602,11 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
       });
 
       if (status == 'completed') {
+        final original = _cloneResponse(statusRes);
         setState(() {
-          _transcribeResponse = statusRes;
+          _transcribeResponseOriginal = original;
+          _transcribeResponse = _cloneResponse(original);
+          _resetSummaryTranslationState();
         });
         return;
       }
@@ -497,7 +627,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   }
 
   Future<void> _submitEncounter() async {
-    final data = _transcribeResponse;
+    final data = _transcribeResponseOriginal ?? _transcribeResponse;
     if (data == null) {
       return;
     }
@@ -646,7 +776,11 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
                   _buildTranscribeStatusCard(),
                 ],
                 const SizedBox(height: 16),
-                if (_transcribeResponse != null) _buildResultCard(_transcribeResponse!),
+                if (_transcribeResponse != null) ...[
+                  _buildSummaryTranslationCard(),
+                  const SizedBox(height: 12),
+                  _buildResultCard(_transcribeResponse!),
+                ],
                 if (_transcribeResponse != null) ...[
                   const SizedBox(height: 12),
                   SizedBox(
@@ -938,6 +1072,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
                           _selectedAudio = null;
                           _selectedAudioBytes = null;
                           _transcribeResponse = null;
+                          _transcribeResponseOriginal = null;
+                          _resetSummaryTranslationState();
                           _voiceJobId = null;
                           _transcriptionJobId = null;
                           _processingStatus = null;
@@ -978,6 +1114,93 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildSummaryTranslationCard() {
+    final originalSummary = _originalClinicalSummary();
+    final hasSummary = originalSummary.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(color: Color(0x140F756D), blurRadius: 16, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Summary Translation',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.lightTextPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            hasSummary
+                ? 'Translate AI clinical summary for view only. Original encounter data is submitted unchanged.'
+                : 'Clinical summary is unavailable for translation.',
+            style: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: AppSelectField<String>(
+                  label: 'Summary Language',
+                  value: _selectedSummaryLanguage,
+                  options: _summaryLanguageOptions,
+                  enabled: !_summaryTranslating && hasSummary,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedSummaryLanguage = value;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 180,
+                height: 50,
+                child: AppPillButton(
+                  onPressed: (_summaryTranslating || !hasSummary) ? null : _translateClinicalSummaryForView,
+                  icon: Icons.translate_rounded,
+                  label: _summaryTranslating ? 'Translating...' : 'Translate',
+                  variant: AppPillButtonVariant.light,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Showing: ${_summaryLanguageLabel(_appliedSummaryLanguage)}',
+            style: const TextStyle(
+              color: AppColors.lightTextMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (_summaryTranslateError != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _summaryTranslateError!,
+              style: const TextStyle(color: AppColors.lightError, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _summaryLanguageLabel(String code) {
+    for (final option in _summaryLanguageOptions) {
+      if (option.value == code) {
+        return option.label;
+      }
+    }
+    return 'English (Original)';
   }
 
   Widget _buildResultCard(Map<String, dynamic> data) {
@@ -1648,3 +1871,14 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
     return (value) => (value ?? '').trim().isEmpty ? message : null;
   }
 }
+
+
+
+
+
+
+
+
+
+
+

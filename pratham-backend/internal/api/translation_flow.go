@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +17,9 @@ func (h *Handler) handleVoiceSummaryTranslate(
 	ctx context.Context,
 	req events.APIGatewayV2HTTPRequest,
 ) (events.APIGatewayV2HTTPResponse, error) {
+	requestID := strings.TrimSpace(req.RequestContext.RequestID)
+	log.Printf("voice_summary_translate_hit request_id=%s path=%s", requestID, strings.TrimSpace(req.RawPath))
+
 	if _, err := h.authorize(req, "asha_worker"); err != nil {
 		return h.error(http.StatusUnauthorized, "AUTHENTICATION_FAILED", err.Error())
 	}
@@ -39,7 +43,7 @@ func (h *Handler) handleVoiceSummaryTranslate(
 
 	target, ok := normalizeTranslationLanguage(in.TargetLanguage)
 	if !ok {
-		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "target_language must be one of: en, hi, kn")
+		return h.error(http.StatusBadRequest, "VALIDATION_ERROR", "target_language must be one of: en, hi, kn, ta, te, ml, gu")
 	}
 
 	source, sourceProvided := normalizeTranslationLanguage(in.SourceLanguage)
@@ -96,6 +100,14 @@ func normalizeTranslationLanguage(raw string) (string, bool) {
 		return "hi", true
 	case "kn", "kn-in":
 		return "kn", true
+	case "ta", "ta-in":
+		return "ta", true
+	case "te", "te-in":
+		return "te", true
+	case "ml", "ml-in":
+		return "ml", true
+	case "gu", "gu-in":
+		return "gu", true
 	default:
 		return "", false
 	}

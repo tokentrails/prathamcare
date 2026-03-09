@@ -57,6 +57,10 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     AppSelectOption<String>(label: 'English (Original)', value: 'en'),
     AppSelectOption<String>(label: 'Kannada', value: 'kn'),
     AppSelectOption<String>(label: 'Hindi', value: 'hi'),
+    AppSelectOption<String>(label: 'Tamil', value: 'ta'),
+    AppSelectOption<String>(label: 'Telugu', value: 'te'),
+    AppSelectOption<String>(label: 'Malayalam', value: 'ml'),
+    AppSelectOption<String>(label: 'Gujarati', value: 'gu'),
   ];
 
 
@@ -395,30 +399,145 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   Map<String, dynamic> _cloneResponse(Map<String, dynamic> value) {
     return (jsonDecode(jsonEncode(value)) as Map).cast<String, dynamic>();
   }
-
-  String _originalClinicalSummary() {
+  bool _hasTranslatableAiDetails() {
     final source = _transcribeResponseOriginal ?? _transcribeResponse;
-    final extracted = (source?['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
-    return '${extracted['clinical_summary'] ?? ''}'.trim();
-  }
-
-  void _applySummaryToView(String summaryText) {
-    final current = _transcribeResponse;
-    if (current == null) {
-      return;
+    if (source == null) {
+      return false;
     }
-    final next = _cloneResponse(current);
-    final extracted = (next['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    extracted['clinical_summary'] = summaryText;
-    next['extracted_entities'] = extracted;
-    _transcribeResponse = next;
+    final extracted = (source['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+    final summary = '${extracted['clinical_summary'] ?? ''}'.trim();
+    final symptoms = (extracted['symptoms'] as List?) ?? const [];
+    final nextSteps = (extracted['asha_next_steps'] as List?) ?? const [];
+    final followUps = (extracted['follow_up_recommendations'] as List?) ?? const [];
+    final alerts = (source['clinical_alerts'] as List?) ?? const [];
+    return summary.isNotEmpty || symptoms.isNotEmpty || nextSteps.isNotEmpty || followUps.isNotEmpty || alerts.isNotEmpty;
   }
 
-  Future<void> _translateClinicalSummaryForView() async {
-    final originalSummary = _originalClinicalSummary();
-    if (originalSummary.isEmpty || _transcribeResponse == null) {
+  String _translationCacheKey(String targetLanguage, String text) {
+    return '$targetLanguage::$text';
+  }
+
+  Future<String> _translateTextForView({required String text, required String targetLanguage}) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty || targetLanguage == 'en') {
+      return normalized;
+    }
+
+    final cacheKey = _translationCacheKey(targetLanguage, normalized);
+    final cached = _summaryTranslateCache[cacheKey];
+    if (cached != null && cached.trim().isNotEmpty) {
+      return cached;
+    }
+
+    final translated = await _apiClient.translateClinicalSummary(
+      text: normalized,
+      sourceLanguage: 'en',
+      targetLanguage: targetLanguage,
+    );
+    final translatedText = '${translated['translated_text'] ?? ''}'.trim();
+    if (translatedText.isEmpty) {
+      throw const FormatException('Empty translation returned by backend.');
+    }
+
+    _summaryTranslateCache[cacheKey] = translatedText;
+    return translatedText;
+  }
+
+  Future<List<dynamic>> _translateStringListForView({
+    required List<dynamic> values,
+    required String targetLanguage,
+  }) async {
+    final futures = values.map((item) async {
+      final text = '$item'.trim();
+      return _translateTextForView(text: text, targetLanguage: targetLanguage);
+    }).toList();
+    return await Future.wait(futures);
+  }
+
+  Future<Map<String, dynamic>> _buildTranslatedAiViewPayload({
+    required Map<String, dynamic> source,
+    required String targetLanguage,
+  }) async {
+    final next = _cloneResponse(source);
+    final extracted = (next['extracted_entities'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+    if (extracted.containsKey('clinical_summary')) {
+      extracted['clinical_summary'] = await _translateTextForView(
+        text: '${extracted['clinical_summary'] ?? ''}',
+        targetLanguage: targetLanguage,
+      );
+    }
+
+    for (final key in const ['chief_complaint', 'visit_type', 'body_site']) {
+      if (extracted.containsKey(key)) {
+        extracted[key] = await _translateTextForView(
+          text: '${extracted[key] ?? ''}',
+          targetLanguage: targetLanguage,
+        );
+      }
+    }
+
+    for (final key in const [
+      'symptoms',
+      'asha_next_steps',
+      'follow_up_recommendations',
+      'red_flags',
+      'medications_mentioned',
+      'suspected_conditions',
+      'risk_factors',
+    ]) {
+      final values = (extracted[key] as List?)?.toList() ?? const [];
+      extracted[key] = await _translateStringListForView(values: values, targetLanguage: targetLanguage);
+    }
+
+    final symptomDetailsRaw = (extracted['symptom_details'] as List?)?.toList() ?? const [];
+    final symptomDetailsOut = <Map<String, dynamic>>[];
+    for (final item in symptomDetailsRaw) {
+      final map = (item as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      symptomDetailsOut.add({
+        ...map,
+        if (map.containsKey('symptom'))
+          'symptom': await _translateTextForView(text: '${map['symptom'] ?? ''}', targetLanguage: targetLanguage),
+        if (map.containsKey('description'))
+          'description': await _translateTextForView(text: '${map['description'] ?? ''}', targetLanguage: targetLanguage),
+      });
+    }
+    extracted['symptom_details'] = symptomDetailsOut;
+
+    next['extracted_entities'] = extracted;
+
+    if (next.containsKey('translation')) {
+      next['translation'] = await _translateTextForView(
+        text: '${next['translation'] ?? ''}',
+        targetLanguage: targetLanguage,
+      );
+    }
+
+    final alertsRaw = (next['clinical_alerts'] as List?)?.toList() ?? const [];
+    final alertsOut = <Map<String, dynamic>>[];
+    for (final item in alertsRaw) {
+      final map = (item as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      alertsOut.add({
+        ...map,
+        if (map.containsKey('message'))
+          'message': await _translateTextForView(text: '${map['message'] ?? ''}', targetLanguage: targetLanguage),
+        if (map.containsKey('recommended_action'))
+          'recommended_action': await _translateTextForView(
+            text: '${map['recommended_action'] ?? ''}',
+            targetLanguage: targetLanguage,
+          ),
+      });
+    }
+    next['clinical_alerts'] = alertsOut;
+
+    return next;
+  }
+
+  Future<void> _translateAiDetailsForView() async {
+    final source = _transcribeResponseOriginal ?? _transcribeResponse;
+    if (source == null || !_hasTranslatableAiDetails()) {
       setState(() {
-        _summaryTranslateError = 'Clinical summary is unavailable for translation.';
+        _summaryTranslateError = 'AI details are unavailable for translation.';
       });
       return;
     }
@@ -426,18 +545,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     final targetLanguage = _selectedSummaryLanguage;
     if (targetLanguage == 'en') {
       setState(() {
-        _applySummaryToView(originalSummary);
+        _transcribeResponse = _cloneResponse(source);
         _appliedSummaryLanguage = 'en';
-        _summaryTranslateError = null;
-      });
-      return;
-    }
-
-    final cached = _summaryTranslateCache[targetLanguage];
-    if (cached != null && cached.trim().isNotEmpty) {
-      setState(() {
-        _applySummaryToView(cached);
-        _appliedSummaryLanguage = targetLanguage;
         _summaryTranslateError = null;
       });
       return;
@@ -449,22 +558,16 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
     });
 
     try {
-      final translated = await _apiClient.translateClinicalSummary(
-        text: originalSummary,
-        sourceLanguage: 'en',
+      final translatedPayload = await _buildTranslatedAiViewPayload(
+        source: source,
         targetLanguage: targetLanguage,
       );
-      final translatedText = '${translated['translated_text'] ?? ''}'.trim();
-      if (translatedText.isEmpty) {
-        throw const FormatException('Empty translation returned by backend.');
-      }
 
       if (!mounted) {
         return;
       }
       setState(() {
-        _summaryTranslateCache[targetLanguage] = translatedText;
-        _applySummaryToView(translatedText);
+        _transcribeResponse = translatedPayload;
         _appliedSummaryLanguage = targetLanguage;
         _summaryTranslateError = null;
       });
@@ -480,7 +583,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
         return;
       }
       setState(() {
-        _summaryTranslateError = 'Unable to translate summary right now.';
+        _summaryTranslateError = 'Unable to translate AI details right now.';
       });
     } finally {
       if (mounted) {
@@ -1117,8 +1220,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
   }
 
   Widget _buildSummaryTranslationCard() {
-    final originalSummary = _originalClinicalSummary();
-    final hasSummary = originalSummary.isNotEmpty;
+    final hasSummary = _hasTranslatableAiDetails();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1139,8 +1241,8 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
           const SizedBox(height: 6),
           Text(
             hasSummary
-                ? 'Translate AI clinical summary for view only. Original encounter data is submitted unchanged.'
-                : 'Clinical summary is unavailable for translation.',
+                ? 'Translate all AI details for view only. Original encounter data is submitted unchanged.'
+                : 'AI details are unavailable for translation.',
             style: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 13),
           ),
           const SizedBox(height: 14),
@@ -1165,7 +1267,7 @@ class _VoiceVisitScreenState extends State<VoiceVisitScreen> {
                 width: 180,
                 height: 50,
                 child: AppPillButton(
-                  onPressed: (_summaryTranslating || !hasSummary) ? null : _translateClinicalSummaryForView,
+                  onPressed: (_summaryTranslating || !hasSummary) ? null : _translateAiDetailsForView,
                   icon: Icons.translate_rounded,
                   label: _summaryTranslating ? 'Translating...' : 'Translate',
                   variant: AppPillButtonVariant.light,
@@ -1871,6 +1973,11 @@ class _AddOrEditPatientSheetState extends State<_AddOrEditPatientSheet> {
     return (value) => (value ?? '').trim().isEmpty ? message : null;
   }
 }
+
+
+
+
+
 
 
 

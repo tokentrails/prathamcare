@@ -6,12 +6,15 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/prathamcare/backend/internal/app"
 	"github.com/prathamcare/backend/internal/api"
+	"github.com/prathamcare/backend/internal/app"
 	"github.com/prathamcare/backend/internal/config"
 )
 
+const buildMarker = "2026-03-09-translate-summary-log-v1"
+
 func main() {
+	log.Printf("startup: build_marker=%s", buildMarker)
 	log.Printf("startup: loading config")
 	cfg, err := config.Load()
 	if err != nil {

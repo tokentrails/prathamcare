@@ -99,16 +99,16 @@ class DemoPrefillData {
   }
 
   static const DemoPatientPrefill patient = DemoPatientPrefill(
-    firstName: 'Meena',
-    middleName: 'Kumari',
-    lastName: 'Devi',
+    firstName: 'Ananya',
+    middleName: '',
+    lastName: 'Sharma',
     gender: 'female',
-    phoneNumber: '+919845612307',
-    dateOfBirth: '1992-06-14',
+    phoneNumber: '+919847812307',
+    dateOfBirth: '1995-06-13',
     ageYears: '33',
-    abhaNumber: '12345678901234',
-    abhaAddress: 'meena.devi@abdm',
-    email: 'meena.devi@example.com',
+    abhaNumber: '12345678908834',
+    abhaAddress: 'Ananya.Sharma@abdm',
+    email: 'Ananya.Sharma@example.com',
     addressLine1: 'Ward 6, Near Anganwadi Center',
     addressLine2: 'House 22',
     villageOrWard: 'Jyothinagar',
@@ -122,10 +122,10 @@ class DemoPrefillData {
 
   static const DemoPublicAppointmentPrefill publicAppointment =
       DemoPublicAppointmentPrefill(
-        fullName: 'Sunita Kumari',
-        phone: '+919876543210',
-        email: 'sunita.kumari@example.com',
-        abhaId: '56789012345678',
+        fullName: 'Lakshmi Reddy',
+        phone: '+919876543540',
+        email: 'lakshmi.reddy@example.com',
+        abhaId: '56789012347478',
         reasonCode: 'maternal_newborn_follow_up',
         reasonText:
             'Need post-delivery follow-up and newborn feeding guidance.',

@@ -4,7 +4,6 @@ import '../features/asha/presentation/screens/public_appointment_request_screen.
 import '../features/asha/presentation/screens/asha_home_screen.dart';
 import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/dashboard/presentation/screens/role_dashboard_screen.dart';
-import '../features/physician/presentation/screens/physician_home_screen.dart';
 import '../features/profile/presentation/screens/profile_screen.dart';
 
 class AppRouter {
@@ -13,11 +12,6 @@ class AppRouter {
       case '/dashboard':
         return MaterialPageRoute<void>(
           builder: (_) => const RoleDashboardScreen(),
-          settings: settings,
-        );
-      case '/physician':
-        return MaterialPageRoute<void>(
-          builder: (_) => const PhysicianHomeScreen(),
           settings: settings,
         );
       case '/asha':
@@ -45,3 +39,5 @@ class AppRouter {
     }
   }
 }
+
+

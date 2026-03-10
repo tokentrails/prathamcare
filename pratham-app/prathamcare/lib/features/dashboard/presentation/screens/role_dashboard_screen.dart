@@ -4,7 +4,6 @@ import '../../../../core/widgets/app_shell.dart';
 import '../../../../data/repositories/cognito_auth_repository.dart';
 import '../../../admin/presentation/screens/admin_doctor_list_screen.dart';
 import '../../../asha/presentation/screens/asha_home_screen.dart';
-import '../../../physician/presentation/screens/physician_home_screen.dart';
 import '../../../shared/widgets/section_card.dart';
 
 class RoleDashboardScreen extends StatefulWidget {
@@ -51,11 +50,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
             subtitle: 'Voice-first field operations and offline capture',
             onTap: () => _open(context, const ASHAHomeScreen()),
           ),
-          SectionCard(
-            title: 'Physician',
-            subtitle: 'EMR, pre-consult summaries, and scheduling',
-            onTap: () => _open(context, const PhysicianHomeScreen()),
-          ),
           if (_isAdmin)
             SectionCard(
               title: 'Doctors',
@@ -71,3 +65,4 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
   }
 }
+

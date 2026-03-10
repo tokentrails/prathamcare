@@ -837,7 +837,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     switch (normalized) {
       case 'doctor':
-        Navigator.of(context).pushReplacementNamed('/physician');
+        Navigator.of(context).pushReplacementNamed('/profile');
         return;
       case 'asha_worker':
       case 'asha':
@@ -917,3 +917,4 @@ class _ForgotPasswordInput {
   final String code;
   final String newPassword;
 }
+

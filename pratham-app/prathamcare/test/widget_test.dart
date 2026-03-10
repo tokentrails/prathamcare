@@ -14,7 +14,7 @@ void main() {
     await tester.pumpWidget(const PrathamCareApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('PrathamCare'), findsOneWidget);
-    expect(find.text('Welcome back, Doctor'), findsOneWidget);
+    expect(find.text('Please enter your credentials to access patient records.'), findsOneWidget);
+    expect(find.text('Physician'), findsOneWidget);
   });
 }
